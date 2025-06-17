@@ -1,10 +1,11 @@
-from db import get_connection
-from flask_jwt_extended import create_access_token
-from models.user import User
-from utils.response import success, error
-from utils.hashing import hash_password, verify_password
-from utils.academic_year import get_academic_year
 import pymysql
+from flask_jwt_extended import create_access_token
+
+from db import get_connection
+from models.user import User
+from utils.hashing import hash_password, verify_password
+from utils.response import success, error
+
 
 class AuthService:
 
@@ -76,16 +77,10 @@ class AuthService:
                 
                 # Insert into education information
                 cursor.execute("""
-                    INSERT INTO education_info(student_id, campus_id, department_id, course_id, academic_year_id, year_level, total_units)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO education_info(student_id)
+                    VALUES (%s)
                 """, (
-                    user_id,
-                    data.get("campus"),
-                    data.get("department"),
-                    data.get("course"),
-                    get_academic_year(),
-                    data.get("year"),
-                    data.get("total_units")
+                    user_id
                 ))
 
             connection.commit()

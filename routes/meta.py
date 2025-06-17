@@ -1,8 +1,12 @@
 from flask import Flask, jsonify, request, Blueprint
 from db import get_connection
-
+from utils.academic_year import get_academic_year
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
 
+@meta_bp.route('/current-academic-year', methods=['GET'])
+def current_academic_year():
+    academic_year = get_academic_year(only_id=False)
+    return jsonify(academic_year)
 @meta_bp.route('/campuses', methods=['GET'])
 def get_campuses():
     conn = get_connection()
