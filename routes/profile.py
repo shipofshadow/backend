@@ -6,25 +6,32 @@ profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()
-def get_current_user():
+def get_user_data():
     user_id = get_jwt_identity()
-    db = get_connection()
-    cursor = db.cursor()
 
-    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    row = cursor.fetchone()
+    connection = get_connection()
+    cursor = connection.cursor()
 
-    if not row:
+    # Get user base info
+    cursor.execute("SELECT id, username, role FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+
+    if not user:
         return jsonify({"message": "User not found"}), 404
 
-    user_data = {
-        "id": row['id'],
-        "username": row["username"],
-        "password": row["password"],
-        "role": row["role"],
-        "is_active": row["is_active"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
+    if user['role'] == 'student':
+        cursor.execute("""
+           SELECT * FROM users 
+                             INNER JOIN students ON students.user_id = users.id 
+                             LEFT JOIN education_info ON education_info.student_id = students.user_id 
+                             LEFT JOIN family_background ON family_background.student_id = students.user_id 
+                             LEFT JOIN addresses ON addresses.student_id = students.user_id
+            WHERE students.user_id = %s
+        """, (user_id,))
+        student_profile = cursor.fetchone()
+        user['profile'] = student_profile
 
-    return jsonify(user_data)
+    cursor.close()
+    connection.close()
+
+    return jsonify(user), 200

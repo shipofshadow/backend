@@ -3,10 +3,20 @@ from db import get_connection
 from utils.academic_year import get_academic_year
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
 
-@meta_bp.route('/current-academic-year', methods=['GET'])
+@meta_bp.route('/active-academic-term', methods=['GET'])
 def current_academic_year():
-    academic_year = get_academic_year(only_id=False)
-    return jsonify(academic_year)
+    data = get_academic_year()
+    if data:
+        formatted = f"AY {data['year_start']}-{data['year_end']} - {data['semester_name']}"
+        return jsonify({
+            "academic_year": f"{data['year_start']}-{data['year_end']}",
+            "semester": data['semester_name'],
+            "academic_year_id": data['academic_year_id'],
+            "semester_id": data['semester_id'],
+            "formatted": formatted
+        })
+    else:
+        return jsonify({"error": "No active academic year or semester found"}), 404
 @meta_bp.route('/campuses', methods=['GET'])
 def get_campuses():
     conn = get_connection()

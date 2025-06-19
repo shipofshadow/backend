@@ -1,5 +1,5 @@
 import pymysql
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, create_refresh_token
 
 from db import get_connection
 from models.user import User
@@ -26,8 +26,10 @@ class AuthService:
                     return error("Invalid username or password"), 401
 
                 token = create_access_token(identity=str(user.id))
+                refresh_token = create_refresh_token(identity=str(user.id))
                 return success("Login successful", {
                     "token": token,
+                    "refresh_token": refresh_token,
                     "user": user.to_dict()
                 }), 200
 
@@ -60,8 +62,8 @@ class AuthService:
                 cursor.execute("""
                     INSERT INTO students (
                         user_id, student_id, last_name, first_name, middle_name,
-                        name_extension, gender, birth_date, contact_number, email
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        name_extension, gender, birth_date, email
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     user_id,
                     data.get("student_id"),
@@ -71,7 +73,6 @@ class AuthService:
                     data.get("name_extension"),
                     data.get("gender"),
                     data.get("birth_date"),
-                    data.get("contact_number"),
                     data.get("email")
                 ))
                 
