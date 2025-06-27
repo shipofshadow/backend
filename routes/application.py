@@ -5,11 +5,27 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from db import get_connection
 from models.application import Application
 from services.application_service import save_application
+from utils.academic_year import get_academic_year
 from utils.utils import allowed_file, save_file
 
 UPLOAD_FOLDER = "uploads"
 
 application_bp = Blueprint("application", __name__, url_prefix="/api/application")
+
+def parse_form_data(form):
+    result = {}
+
+    for key in form:
+        if '[' in key and key.endswith(']'):
+            # For keys like "father[firstName]"
+            parent, child = key[:-1].split('[', 1)
+            if parent not in result:
+                result[parent] = {}
+            result[parent][child] = form.get(key)
+        else:
+            result[key] = form.get(key)
+
+    return result
 
 
 @application_bp.route("/apply", methods=["POST"])
@@ -20,13 +36,11 @@ def submit_application():
     if "itr" not in request.files or "grades" not in request.files:
         return jsonify({"error": "Missing files (itr or grades)"}), 400
 
-    data = request.form.to_dict()
-    # Nested fields need to be parsed separately from JSON strings if you're sending as form-data
     import json
+    data = parse_form_data(request.form)
     data["father"] = json.loads(request.form.get("father", "{}"))
     data["mother"] = json.loads(request.form.get("mother", "{}"))
 
-    # File handling
     itr_file = request.files["itr"]
     grades_file = request.files["grades"]
 
@@ -36,9 +50,12 @@ def submit_application():
     itr_filename = save_file(itr_file, user_id, "itr", UPLOAD_FOLDER)
     grades_filename = save_file(grades_file, user_id, "grades", UPLOAD_FOLDER)
 
-    # Attach file paths
     data["itr"] = itr_filename
     data["grades"] = grades_filename
+
+    active = get_academic_year()
+    data["academicYearId"] = active["academic_year_id"]
+    data["semesterId"] = active["semester_id"]
 
     try:
         application = Application(data)
@@ -49,8 +66,8 @@ def submit_application():
         return jsonify({"message": "Application submitted successfully."}), 200
 
     except Exception as e:
+        print("Error in /apply:", e)  # Log the traceback
         return jsonify({"error": str(e)}), 500
-
 
 @application_bp.route('/status', methods=['GET'])
 @jwt_required()

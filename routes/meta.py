@@ -1,7 +1,9 @@
 from flask import Flask, jsonify, request, Blueprint
 from db import get_connection
 from utils.academic_year import get_academic_year
+
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
+
 
 @meta_bp.route('/active-academic-term', methods=['GET'])
 def current_academic_year():
@@ -17,6 +19,8 @@ def current_academic_year():
         })
     else:
         return jsonify({"error": "No active academic year or semester found"}), 404
+
+
 @meta_bp.route('/campuses', methods=['GET'])
 def get_campuses():
     conn = get_connection()
@@ -27,6 +31,7 @@ def get_campuses():
     cursor.close()
     conn.close()
     return jsonify(data), 200
+
 
 @meta_bp.route('/departments', methods=['GET'])
 def get_departments():
@@ -43,17 +48,20 @@ def get_departments():
     conn.close()
     return jsonify(data), 200
 
+
 @meta_bp.route('/courses', methods=['GET'])
 def get_courses():
     department_id = request.args.get('department_id')
     conn = get_connection()
     cursor = conn.cursor()
     if department_id:
-        cursor.execute("SELECT course_id, name, major, department_id FROM courses WHERE department_id = %s", (department_id,))
+        cursor.execute("SELECT course_id, name, major, department_id FROM courses WHERE department_id = %s",
+                       (department_id,))
     else:
         cursor.execute("SELECT course_id, name, major, department_id FROM courses")
     rows = cursor.fetchall()
-    data = [{'id': row['course_id'], 'name': row['name'], 'major': row['major'], 'department_id': row['department_id']} for row in rows]
+    data = [{'id': row['course_id'], 'name': row['name'], 'major': row['major'], 'department_id': row['department_id']}
+            for row in rows]
     cursor.close()
     conn.close()
     return jsonify(data), 200
