@@ -77,4 +77,9 @@ def check_application_status():
     cursor = db.cursor()
     cursor.execute("SELECT COUNT(*) FROM applications WHERE student_id = %s", (user_id,))
     (count,) = cursor.fetchone()
-    return jsonify({"has_applied": count > 0})
+    try:
+        has_applied = int(count) < 0
+    except (ValueError, TypeError):
+        has_applied = False
+
+    return jsonify({"has_applied": has_applied})
