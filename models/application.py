@@ -47,6 +47,7 @@ class Application:
 
         # Academic Info
         self.student_id = data.get("studentId")
+        self.year_level = data.get("year_level")
         self.campus = data.get("campus")
         self.department = data.get("department")
         self.course = data.get("course")
@@ -109,6 +110,7 @@ class Application:
 
             # Academic
             "student_id": self.student_id,
+            "year_level": self.year_level,
             "campus": self.campus,
             "department": self.department,
             "course": self.course,

@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
+ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "docx"}
 
 class Config:
     DB_HOST = os.getenv("DB_HOST", "localhost")

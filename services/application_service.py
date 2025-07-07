@@ -17,7 +17,7 @@ def save_application(db, user_id, application):
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         user_id, application.campus, application.department, application.course,
-        academic_year_id, application.enrollment_status,
+                academic_year_id, application.year_level,
         application.total_units, application.enrollment_status
     ))
 

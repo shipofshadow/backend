@@ -38,8 +38,7 @@ def submit_application():
 
     import json
     data = parse_form_data(request.form)
-    data["father"] = json.loads(request.form.get("father", "{}"))
-    data["mother"] = json.loads(request.form.get("mother", "{}"))
+
 
     itr_file = request.files["itr"]
     grades_file = request.files["grades"]
@@ -57,13 +56,14 @@ def submit_application():
     data["academicYearId"] = active["academic_year_id"]
     data["semesterId"] = active["semester_id"]
 
+
     try:
         application = Application(data)
 
         db = get_connection()
         save_application(db, user_id, application)
 
-        return jsonify({"message": "Application submitted successfully."}), 200
+        return jsonify(data), 200
 
     except Exception as e:
         print("Error in /apply:", e)  # Log the traceback
@@ -72,14 +72,16 @@ def submit_application():
 @application_bp.route('/status', methods=['GET'])
 @jwt_required()
 def check_application_status():
-    user_id = get_jwt_identity()
-    db = get_connection()
-    cursor = db.cursor()
-    cursor.execute("SELECT COUNT(*) FROM applications WHERE student_id = %s", (user_id,))
-    (count,) = cursor.fetchone()
     try:
-        has_applied = int(count) < 0
-    except (ValueError, TypeError):
-        has_applied = False
+        user_id = int(get_jwt_identity())
+        db = get_connection()
+        cursor = db.cursor()
 
-    return jsonify({"has_applied": has_applied})
+        cursor.execute("SELECT COUNT(*) AS total, status FROM applications WHERE student_id = %s", (user_id,))
+        result = cursor.fetchone()
+        count = int(result["total"]) if result else 0
+        has_applied = count > 0
+
+        return jsonify({"has_applied": has_applied, "status": result["status"]}), 200
+    except Exception as e:
+        return jsonify({"error": "Could not check application status"}), 500
