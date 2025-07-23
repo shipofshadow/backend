@@ -1,11 +1,11 @@
-import os
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+import traceback
 
 from db import get_connection
 from models.application import Application
-from services.application_service import save_application
-from utils.academic_year import get_academic_year
+from services.application_service import save_application, insert_grades
+from services.admin.manage_periods import get_active_period
 from utils.utils import allowed_file, save_file
 
 UPLOAD_FOLDER = "uploads"
@@ -28,17 +28,20 @@ def parse_form_data(form):
     return result
 
 
+@application_bp.route("/", methods=["GET"])
+@jwt_required()
+def fetch_applications():
+    user_id = get_jwt_identity()
+
+
 @application_bp.route("/apply", methods=["POST"])
 @jwt_required()
 def submit_application():
     user_id = get_jwt_identity()
+    data = parse_form_data(request.form)
 
     if "itr" not in request.files or "grades" not in request.files:
         return jsonify({"error": "Missing files (itr or grades)"}), 400
-
-    import json
-    data = parse_form_data(request.form)
-
 
     itr_file = request.files["itr"]
     grades_file = request.files["grades"]
@@ -52,22 +55,38 @@ def submit_application():
     data["itr"] = itr_filename
     data["grades"] = grades_filename
 
-    active = get_academic_year()
+    active = get_active_period()
     data["academicYearId"] = active["academic_year_id"]
     data["semesterId"] = active["semester_id"]
-
 
     try:
         application = Application(data)
 
         db = get_connection()
-        save_application(db, user_id, application)
+        application_id = save_application(db, user_id, application)
 
+        if application.grades_list:
+            insert_grades(db, application_id, application.grades_list)
+
+        with db.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO application_files (application_id, file_type, file_path)
+                VALUES (%s, %s, %s)
+            """, (application_id, 'itr', itr_filename))
+            cursor.execute("""
+                INSERT INTO application_files (application_id, file_type, file_path)
+                VALUES (%s, %s, %s)
+            """, (application_id, 'grades', grades_filename))
+        db.commit()
         return jsonify(data), 200
 
     except Exception as e:
-        print("Error in /apply:", e)  # Log the traceback
+        db.rollback()  # Rollback to avoid partial writes if there's an error
+        print("Error in /apply:", e)
+        traceback.print_exc()  # <--- shows the real error!
+
         return jsonify({"error": str(e)}), 500
+
 
 @application_bp.route('/status', methods=['GET'])
 @jwt_required()
@@ -77,11 +96,25 @@ def check_application_status():
         db = get_connection()
         cursor = db.cursor()
 
-        cursor.execute("SELECT COUNT(*) AS total, status FROM applications WHERE student_id = %s", (user_id,))
-        result = cursor.fetchone()
-        count = int(result["total"]) if result else 0
-        has_applied = count > 0
+        active = get_active_period()
 
-        return jsonify({"has_applied": has_applied, "status": result["status"]}), 200
+        if not active:
+            return jsonify({"error": "No active semester found"}), 400
+
+        semester_id = active['semester_id']
+
+        cursor.execute("""
+            SELECT status FROM applications 
+            WHERE student_id = %s AND semester_id = %s
+            LIMIT 1
+        """, (user_id, semester_id))
+
+        result = cursor.fetchone()
+
+        if result:
+            return jsonify({"has_applied": True, "status": result['status']}), 200
+        else:
+            return jsonify({"has_applied": False, "status": None}), 200
+
     except Exception as e:
         return jsonify({"error": "Could not check application status"}), 500

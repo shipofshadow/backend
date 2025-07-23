@@ -1,13 +1,13 @@
-from flask import Flask, jsonify, request, Blueprint
+from flask import jsonify, request, Blueprint
 from db import get_connection
-from utils.academic_year import get_academic_year
+from services.admin.manage_periods import get_active_period
 
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
 
 
 @meta_bp.route('/active-academic-term', methods=['GET'])
 def current_academic_year():
-    data = get_academic_year()
+    data = get_active_period()
     if data:
         formatted = f"AY {data['year_start']}-{data['year_end']} - {data['semester_name']}"
         return jsonify({

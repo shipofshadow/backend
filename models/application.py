@@ -1,3 +1,6 @@
+import json
+
+
 class Application:
     def __init__(self, data):
         # Personal Info
@@ -59,6 +62,12 @@ class Application:
         self.scholarship_name = data.get("scholarshipName")
         self.other_scholarship = data.get("otherScholarship")
         self.scholarship_amount = data.get("scholarshipAmount")
+
+        grades_raw = data.get("gradesList", "[]")
+        try:
+            self.grades_list = json.loads(grades_raw)
+        except Exception:
+            self.grades_list = []
 
     def to_dict(self):
         return {

@@ -8,7 +8,6 @@ from utils.response import success, error
 
 
 class AuthService:
-
     @staticmethod
     def login(username, password):
         connection = get_connection()
@@ -16,17 +15,15 @@ class AuthService:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
                 data = cursor.fetchone()
-
                 if not data:
                     return error("No username found"), 401
-
                 user = User(data)
 
                 if not verify_password(password, user.password):
                     return error("Invalid username or password"), 401
 
-                token = create_access_token(identity=str(user.id))
-                refresh_token = create_refresh_token(identity=str(user.id))
+                token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
+                refresh_token = create_refresh_token(identity=str(user.id), additional_claims={"role": user.role})
 
                 response_data = {
                     "token": token,
@@ -43,8 +40,6 @@ class AuthService:
         except Exception as e:
             return error(f"Login failed: {str(e)}"), 500
 
-        finally:
-            connection.close()
 
     @staticmethod
     def register(data):
@@ -69,7 +64,7 @@ class AuthService:
                 cursor.execute("""
                     INSERT INTO students (
                         user_id, student_id, last_name, first_name, middle_name,
-                        name_extension, gender, birth_date, email, contact_number
+                        name_extension, gender, birth_date, contact_number, email
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     user_id,

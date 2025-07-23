@@ -4,6 +4,12 @@ from db import get_connection
 
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 
+@profile_bp.route("/applications", methods=["GET"])
+@jwt_required()
+def get_applications():
+    user_id = get_jwt_identity()
+
+
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()
 def get_user_data():
