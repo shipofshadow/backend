@@ -5,9 +5,9 @@ def insert_grades(db, application_id, grades_list):
 
     for grade in grades_list:
         cursor.execute("""
-            INSERT INTO application_grades (application_id, subject_name, grade)
-            VALUES (%s, %s, %s)
-        """, (application_id, grade['subject'], grade['grade']))
+            INSERT INTO application_grades (application_id, subject_name, grade, units)
+            VALUES (%s, %s, %s, %s)
+        """, (application_id, grade['subject'], grade['grade'], grade['units']))
 
     cursor.close()
 
@@ -165,8 +165,8 @@ def base_applicant_query():
             students.student_id as uid,
             semesters.*,
             itr_files.file_path AS itr_file,
-            grades_files.file_path AS grades_file
-
+            grades_files.file_path AS grades_file,
+            evaluations.*
 
         FROM applications
         INNER JOIN students ON students.user_id = applications.student_id
@@ -175,7 +175,7 @@ def base_applicant_query():
         INNER JOIN family_background ON family_background.student_id = students.user_id
         INNER JOIN semesters ON semesters.id = applications.semester_id
         INNER JOIN academic_years ON academic_years.id = semesters.academic_year_id
-            
+        LEFT JOIN evaluations ON evaluations.application_id = applications.id
         -- Files JOIN
         LEFT JOIN application_files AS itr_files 
             ON itr_files.application_id = applications.id AND itr_files.file_type = 'itr'
@@ -187,3 +187,27 @@ def base_applicant_query():
         LEFT JOIN departments ON education_info.department_id = departments.department_id
         LEFT JOIN courses ON education_info.course_id = courses.course_id
     """
+
+def fetch_grades_by_application_ids(cursor, application_ids):
+    if not application_ids:
+        return {}
+
+    placeholders = ",".join(["%s"] * len(application_ids))
+    cursor.execute(f"""
+        SELECT application_id, subject_name, grade, units
+        FROM application_grades
+        WHERE application_id IN ({placeholders})
+    """, application_ids)
+
+    grades_raw = cursor.fetchall()
+
+    grades_map = {}
+    for g in grades_raw:
+        app_id = g["application_id"]
+        grades_map.setdefault(app_id, []).append({
+            "subject_name": g["subject_name"],
+            "grade": float(g["grade"]),
+            "units": int(g["units"])
+        })
+
+    return grades_map

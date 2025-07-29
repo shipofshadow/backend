@@ -209,4 +209,4 @@ if __name__ == "__main__":
         again = input("\nDo you want to evaluate another? (y/n): ").strip().lower()
         if again != 'y':
             print("Exiting...")
-            break7uy
+            break
