@@ -1,6 +1,9 @@
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+
+import db
 from db import get_connection
+from services.application_service import base_applicant_query
 
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 
@@ -9,6 +12,12 @@ profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 def get_applications():
     user_id = get_jwt_identity()
 
+    connection = get_connection()
+    cursor = connection.cursor()
+    cursor.execute(base_applicant_query() + 'WHERE applications.student_id = %s', [user_id])
+    applications = cursor.fetchall()
+    cursor.close()
+    return jsonify(applications), 200
 
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()

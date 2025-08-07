@@ -16,17 +16,9 @@ from routes.scholarships import scholarships_bp
 
 app = Flask(__name__)
 app.config['JWT_SECRET_KEY'] = Config.JWT_SECRET_KEY
-CORS(app, resources={
-    r"/*": {
-        "origins": [
-            "https://qoshima.xyz",
-            "https://www.qoshima.xyz",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ],
-        "supports_credentials": True
-    }
-})
+CORS(app,
+     supports_credentials=True,
+     resources={r"/*": {"origins": '*'}})
 JWTManager(app)
 
 app.register_blueprint(meta_bp)

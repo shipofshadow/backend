@@ -211,3 +211,21 @@ def fetch_grades_by_application_ids(cursor, application_ids):
         })
 
     return grades_map
+
+def fetch_grades_by_application_id(cursor, application_id):
+    cursor.execute("""
+        SELECT subject_name, grade, units
+        FROM application_grades
+        WHERE application_id = %s
+    """, (application_id,))
+
+    grades_raw = cursor.fetchall()
+
+    return [
+        {
+            "subject_name": g["subject_name"],
+            "grade": float(g["grade"]),
+            "units": int(g["units"])
+        }
+        for g in grades_raw
+    ]

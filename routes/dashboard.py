@@ -11,7 +11,7 @@ def active_applicants():
         SELECT COUNT(*) AS total
         FROM applications
         LEFT JOIN semesters ON semesters.id = applications.semester_id
-        WHERE semesters.is_active = 1
+        WHERE semesters.is_active = 1 AND applications.deleted_at IS NULL
     """)
 
     result = cursor.fetchone()
@@ -32,7 +32,7 @@ def approved_applicants():
             SELECT COUNT(*) AS total 
             FROM applications 
             LEFT JOIN semesters ON semesters.id = applications.semester_id 
-            WHERE applications.status = 'approved' AND semesters.is_active = 1;
+            WHERE applications.status = 'approved' AND semesters.is_active = 1 AND applications.deleted_at IS NULL;
        """)
 
     result = cursor.fetchone()
@@ -53,7 +53,7 @@ def pending_applicants():
             SELECT COUNT(*) AS total 
             FROM applications 
             LEFT JOIN semesters ON semesters.id = applications.semester_id 
-            WHERE applications.status = 'pending' AND semesters.is_active = 1;
+            WHERE applications.status = 'pending' AND semesters.is_active = 1 AND applications.deleted_at IS NULL;
        """)
 
     result = cursor.fetchone()
@@ -74,7 +74,7 @@ def rejected_applicants():
             SELECT COUNT(*) AS total 
             FROM applications 
             LEFT JOIN semesters ON semesters.id = applications.semester_id 
-            WHERE applications.status = 'denied' AND semesters.is_active = 1;
+            WHERE applications.status = 'denied' AND semesters.is_active = 1 AND applications.deleted_at IS NOT NULL;
        """)
 
     result = cursor.fetchone()
@@ -116,7 +116,7 @@ def applicants_per_course():
                  JOIN departments ON departments.department_id = courses.department_id 
                  JOIN campuses ON campuses.campus_id = departments.campus_id 
                  LEFT JOIN semesters ON semesters.id = applications.semester_id
-        WHERE  semesters.is_active = 1
+        WHERE  semesters.is_active = 1 AND applications.deleted_at IS NOT NULL
         GROUP BY campuses.name, departments.name, courses.name 
         ORDER BY campuses.name, departments.name, courses.name;
     """
@@ -128,22 +128,59 @@ def applicants_per_course():
 
 @dashboard_bp.route('/applications-trend', methods=['GET'])
 def applications_trend():
-    year = request.args.get('year', default=2025, type=int)
+    academic_year_id = request.args.get('academic_year_id', type=int)
+    semester_id = request.args.get('semester_id', type=int)
+    campus_id = request.args.get('campus_id', type=int)
+    department_id = request.args.get('department_id', type=int)
+    course_id = request.args.get('course_id', type=int)
 
     conn = get_connection()
     cursor = conn.cursor()
 
     query = """
         SELECT 
-            MONTHNAME(applications.submitted_at) AS month,
-            COUNT(*) AS total_applications
-        FROM applications
-        JOIN semesters ON semesters.id = applications.semester_id
-        WHERE semesters.is_active = 1 AND YEAR(applications.submitted_at) = %s
-        GROUP BY MONTH(applications.submitted_at)
-        ORDER BY MONTH(applications.submitted_at);
+            CONCAT(ay.year_start, '-', ay.year_end) AS academic_year,
+            s.name AS semester,
+            SUM(CASE WHEN a.status = 'pending' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN a.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+            SUM(CASE WHEN a.status = 'denied' THEN 1 ELSE 0 END) AS denied,
+            COUNT(*) AS total
+        FROM applications a
+        JOIN semesters s ON s.id = a.semester_id
+        JOIN academic_years ay ON ay.id = s.academic_year_id
+        JOIN education_info ei ON ei.student_id = a.student_id
+        WHERE a.deleted_at IS NULL
+          AND ei.deleted_at IS NULL
     """
-    cursor.execute(query, (year,))
+
+    params = []
+
+    if academic_year_id:
+        query += " AND ay.id = %s"
+        params.append(academic_year_id)
+
+    if semester_id:
+        query += " AND s.id = %s"
+        params.append(semester_id)
+
+    if campus_id:
+        query += " AND ei.campus_id = %s"
+        params.append(campus_id)
+
+    if department_id:
+        query += " AND ei.department_id = %s"
+        params.append(department_id)
+
+    if course_id:
+        query += " AND ei.course_id = %s"
+        params.append(course_id)
+
+    query += """
+        GROUP BY ay.id, s.id
+        ORDER BY ay.year_start ASC, s.name ASC;
+    """
+
+    cursor.execute(query, tuple(params))
     result = cursor.fetchall()
 
     cursor.close()

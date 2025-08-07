@@ -4,6 +4,61 @@ from services.admin.manage_periods import get_active_period
 
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
 
+@meta_bp.route('/semesters', methods=['GET'])
+def get_semesters():
+    semester_id = request.args.get('semester_id', type=int)
+    academic_year_id = request.args.get('academic_year_id', type=int)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+        SELECT 
+            s.id AS semester_id,
+            s.name AS semester_name,
+            s.is_active,
+            ay.id AS academic_year_id,
+            ay.year_start,
+            ay.year_end
+        FROM semesters s
+        JOIN academic_years ay ON ay.id = s.academic_year_id
+        WHERE s.deleted_at IS NULL
+    """
+
+    params = []
+    if semester_id:
+        query += " AND s.id = %s"
+        params.append(semester_id)
+
+    if academic_year_id:
+        query += " AND ay.id = %s"
+        params.append(academic_year_id)
+
+    query += " ORDER BY ay.year_start ASC, s.name ASC"
+
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+
+    semesters = []
+    for row in rows:
+        semesters.append({
+            "id": row["semester_id"],
+            "name": row["semester_name"],
+            "is_active": row["is_active"],
+            "academic_year": {
+                "id": row["academic_year_id"],
+                "year_start": row["year_start"],
+                "year_end": row["year_end"]
+            }
+        })
+
+    cursor.close()
+    conn.close()
+
+    if semester_id and len(semesters) == 1:
+        return jsonify(semesters[0]), 200
+
+    return jsonify(semesters), 200
 
 @meta_bp.route('/active-academic-term', methods=['GET'])
 def current_academic_year():

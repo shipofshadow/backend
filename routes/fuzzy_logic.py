@@ -3,6 +3,47 @@ from db import get_connection
 
 fuzzy_bp = Blueprint("fuzzy_bp", __name__, url_prefix="/api/fuzzy")
 
+@fuzzy_bp.route('/fuzzy-rules', methods=['GET'])
+def get_fuzzy_rules():
+    db = get_connection()
+    cursor = db.cursor()
+
+    try:
+        # Fetch all rules
+        cursor.execute("""
+            SELECT
+                fr.rule_id,
+                fr.consequent_value,
+                fv.variable_name,
+                fs.set_name
+            FROM fuzzy_rules fr
+            JOIN fuzzy_rule_conditions frc ON frc.rule_id = fr.rule_id
+            JOIN fuzzy_sets fs ON fs.set_id = frc.set_id
+            JOIN fuzzy_variables fv ON fv.variable_id = fs.variable_id
+        """)
+        rows = cursor.fetchall()
+
+        # Group by rule_id
+        rule_map = {}
+        for row in rows:
+            rid = row['rule_id']
+            if rid not in rule_map:
+                rule_map[rid] = {
+                    'if': {},
+                    'then': float(row['consequent_value'])
+                }
+            rule_map[rid]['if'][row['variable_name']] = row['set_name']
+
+        rules = list(rule_map.values())
+        return jsonify(rules), 200
+
+    except Exception as e:
+        print(f"[ERROR] get_fuzzy_rules: {e}")
+        return jsonify({"error": "Failed to fetch fuzzy rules"}), 500
+    finally:
+        cursor.close()
+        db.close()
+
 @fuzzy_bp.route("/fuzzy-variables", methods=["GET"])
 def get_fuzzy_variables():
     db = get_connection()

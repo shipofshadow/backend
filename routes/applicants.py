@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from flask import Flask, jsonify, request, Blueprint, send_from_directory
 from flask_jwt_extended import jwt_required
 
@@ -18,8 +20,9 @@ def fetch_applicants_by_status(status: str):
     cursor = db.cursor()
 
     query = base_applicant_query() + """
-        WHERE semesters.is_active = 1
-        AND applications.status = %s
+    WHERE applications.deleted_at IS NULL
+    AND semesters.is_active = 1 
+    AND applications.status = %s
     """
     cursor.execute(query, (status,))
     applicants = cursor.fetchall()
@@ -56,7 +59,35 @@ def get_pending_applicants():
 def get_all_applicants():
     db = get_connection()
     cursor = db.cursor()
-    cursor.execute(base_applicant_query() + " WHERE semesters.is_active = 1")
+    cursor.execute(base_applicant_query() + " WHERE applications.deleted_at IS NULL AND semesters.is_active = 1")
+    applicants = cursor.fetchall()
+
+    if not applicants:
+        cursor.close()
+        db.close()
+        return jsonify([]), 200
+
+    application_ids = [app["id"] for app in applicants]
+    grades_map = fetch_grades_by_application_ids(cursor, application_ids)
+
+    for app in applicants:
+        app["grades"] = grades_map.get(app["id"], [])
+
+    cursor.close()
+    db.close()
+    return jsonify(applicants), 200
+
+@applicants_bp.route("/archived", methods=["GET"])
+@jwt_required()
+def get_archived_applicants():
+    db = get_connection()
+    cursor = db.cursor()
+
+    query = base_applicant_query() + """
+        WHERE applications.deleted_at IS NOT NULL
+        AND semesters.is_active = 1
+    """
+    cursor.execute(query)
     applicants = cursor.fetchall()
 
     if not applicants:
@@ -82,43 +113,45 @@ def get_not_applied():
     cursor = db.cursor()
 
     cursor.execute("""
-        SELECT 
-            students.id AS student_id,
-            students.user_id,
-            students.student_id AS student_number,
-            students.first_name,
-            students.middle_name,
-            students.last_name,
-            students.name_extension,
-            students.gender,
-            students.birth_date,
-            students.civil_status,
-            students.citizenship,
-            students.contact_number,
-            students.email,
-            users.is_active,
-            users.id AS user_id,
-            users.username,
-            users.role,
-            users.created_at,
-            users.updated_at
-        FROM users
-        INNER JOIN students ON students.user_id = users.id
-        LEFT JOIN applications ON applications.student_id = students.id
-        INNER JOIN semesters ON semesters.id = applications.semester_id
-        WHERE users.role = 'student'
-          AND semesters.is_active = 1
+SELECT 
+    s.id AS student_id,
+    s.user_id,
+    s.student_id AS student_number,
+    s.first_name,
+    s.last_name,
+    s.first_name,
+    s.middle_name,
+    s.name_extension,
+    s.gender,
+    s.birth_date,
+    s.citizenship,
+    s.civil_status,
+    s.email,
+    s.created_at,
+    s.updated_at,
+    s.deleted_at,
+    u.username
+FROM students s
+JOIN users u ON u.id = s.user_id
+WHERE u.role = 'student'
+AND s.id NOT IN (
+    SELECT s2.id
+    FROM applications a
+    JOIN semesters sem ON sem.id = a.semester_id
+    JOIN students s2 ON s2.user_id = a.student_id
+    WHERE sem.is_active = 1
+    AND a.deleted_at IS NULL
+);            
     """)
     result = cursor.fetchall()
     return jsonify(result), 200
 
 
-@applicants_bp.route('/<int:student_id>', methods=['GET'])
-@jwt_required()
-def get_applicant_by_id(student_id):
+@applicants_bp.route('/<int:applicantId>', methods=['GET'])
+def get_applicant_by_id(applicantId):
     db = get_connection()
     cursor = db.cursor()
-    cursor.execute(base_applicant_query() + " WHERE semesters.is_active = 1 AND students.user_id = %s", (student_id,))
+    cursor.execute(base_applicant_query() + " WHERE semesters.is_active = 1 AND applications.id = %s", (applicantId,))
     applicant = cursor.fetchone()
 
     if not applicant:
@@ -142,10 +175,42 @@ def update_applicant(applicant_id):
     return jsonify(data), 200
 
 
-@applicants_bp.route('/<int:applicant_id>', methods=['DELETE'])
+@applicants_bp.route('/<int:application_id>', methods=['PATCH'])
 @jwt_required()
-def delete_applicant(applicant_id):
-    return jsonify({"message": "Applicant deleted"}), 200
+def delete_application(application_id):
+    db = get_connection()
+    cursor = db.cursor()
+    now = datetime.now(tz=timezone.utc)
+
+    try:
+
+        cursor.execute(
+            "UPDATE applications SET deleted_at = %s WHERE id = %s",
+            (now, application_id)
+        )
+
+        related_tables = [
+            "application_grades",
+            "application_files",
+            "evaluations"
+        ]
+
+        for table in related_tables:
+            cursor.execute(
+                f"UPDATE {table} SET deleted_at = %s WHERE application_id = %s",
+                (now, application_id)
+            )
+
+        db.commit()
+        return jsonify({"message": "Applicant application archived successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        cursor.close()
+        db.close()
 
 @applicants_bp.route('/<int:application_id>/status', methods=['PUT'])
 @jwt_required()

@@ -131,12 +131,16 @@ class FuzzyEligibilitySystem:
         Returns:
             The eligibility category as a string.
         """
-        if score >= 0.75:
-            return "High Eligibility"
-        if score >= 0.5:
-            return "Medium Eligibility"
-        if score >= 0.25:
-            return "Low Eligibility"
+        if score >= 0.85:
+            return "Highly Eligible"
+        elif score >= 0.65:
+            return "Eligible"
+        elif score >= 0.45:
+            return "Somewhat Eligible"
+        elif score >= 0.25:
+            return "Barely Eligible"
+        elif score > 0.0:
+            return "Very Low Eligibility"
         return "Not Eligible"
 
     def evaluate(self, gwa: float, income: float, verbose: bool = False) -> Dict[str, Any]:

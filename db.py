@@ -11,3 +11,7 @@ def get_connection():
         charset='utf8mb4',
         cursorclass=pymysql.cursors.DictCursor
         )
+
+
+def close():
+    return None
