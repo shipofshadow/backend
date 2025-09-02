@@ -45,7 +45,8 @@ class Application:
         self.household_number = data.get("householdNumber")
         self.siblings = data.get("siblings")
         self.siblings_studying = data.get("siblingsStudying")
-        self.ip_affiliation = data.get("ipAffiliation")
+        value = data.get("ipAffiliation")
+        self.ip_affiliation = None if value in (None, "", "N/A") else value
         self.dswd_program = data.get("dswdProgram")
 
         # Academic Info

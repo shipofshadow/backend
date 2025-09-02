@@ -1,5 +1,5 @@
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 
 class FuzzyEligibilitySystem:
     """
@@ -143,14 +143,13 @@ class FuzzyEligibilitySystem:
             return "Very Low Eligibility"
         return "Not Eligible"
 
-    def evaluate(self, gwa: float, income: float, verbose: bool = False) -> Dict[str, Any]:
+    def evaluate(self, gwa: float, income: float,) -> Dict[str, Any]:
         """
         Performs a complete eligibility evaluation from inputs to final classification.
 
         Args:
             gwa: The GWA value.
             income: The income value in PHP.
-            verbose: If True, prints a detailed breakdown of the evaluation.
 
         Returns:
             A dictionary containing the complete results.
@@ -170,47 +169,4 @@ class FuzzyEligibilitySystem:
             }
         }
 
-        if verbose:
-            print(f"\n--- Eligibility Evaluation ---")
-            print(f"Inputs:")
-            print(f"  GWA: {gwa}")
-            print(f"  Income: PHP {income:,.2f}")
-            print("\nFuzzification Results:")
-            print(f"  GWA Memberships: {gwa_memberships}")
-            print(f"  Income Memberships: {income_memberships}")
-            print("\nFinal Result:")
-            print(f"  Eligibility Score: {score:.4f}")
-            print(f"  Classification: {classification}")
-            print("----------------------------")
-
         return result
-
-# --- Example Usage ---
-if __name__ == "__main__":
-    fuzzy_system = FuzzyEligibilitySystem()
-
-    while True:
-        print("\nEnter student data to evaluate eligibility (or type 'exit' to quit):")
-        try:
-            gwa_input_str = input("GWA (e.g., 1.25): ")
-            if gwa_input_str.lower() == 'exit':
-                break
-            gwa_input = float(gwa_input_str)
-
-            income_input_str = input("Monthly Family Income (PHP): ")
-            if income_input_str.lower() == 'exit':
-                break
-            income_input = float(income_input_str)
-
-        except ValueError:
-            print("\n[Error] Invalid input. Please enter numeric values.")
-            continue
-
-        # Evaluate eligibility with a detailed printout.
-        fuzzy_system.evaluate(gwa_input, income_input, verbose=True)
-
-        # Ask to continue
-        again = input("\nDo you want to evaluate another? (y/n): ").strip().lower()
-        if again != 'y':
-            print("Exiting...")
-            break

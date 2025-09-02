@@ -74,7 +74,7 @@ def rejected_applicants():
             SELECT COUNT(*) AS total 
             FROM applications 
             LEFT JOIN semesters ON semesters.id = applications.semester_id 
-            WHERE applications.status = 'denied' AND semesters.is_active = 1 AND applications.deleted_at IS NOT NULL;
+            WHERE applications.status = 'denied' AND semesters.is_active = 1 AND applications.deleted_at IS NULL;
        """)
 
     result = cursor.fetchone()
@@ -116,7 +116,7 @@ def applicants_per_course():
                  JOIN departments ON departments.department_id = courses.department_id 
                  JOIN campuses ON campuses.campus_id = departments.campus_id 
                  LEFT JOIN semesters ON semesters.id = applications.semester_id
-        WHERE  semesters.is_active = 1 AND applications.deleted_at IS NOT NULL
+        WHERE  semesters.is_active = 1 AND applications.deleted_at IS NULL
         GROUP BY campuses.name, departments.name, courses.name 
         ORDER BY campuses.name, departments.name, courses.name;
     """

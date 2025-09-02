@@ -104,7 +104,7 @@ def check_application_status():
         semester_id = active['semester_id']
 
         cursor.execute("""
-            SELECT status FROM applications 
+            SELECT status, submitted_at FROM applications 
             WHERE student_id = %s AND semester_id = %s
             LIMIT 1
         """, (user_id, semester_id))
@@ -112,7 +112,7 @@ def check_application_status():
         result = cursor.fetchone()
 
         if result:
-            return jsonify({"has_applied": True, "status": result['status']}), 200
+            return jsonify({"has_applied": True, "submitted_at": result['submitted_at'], "status": result['status']}), 200
         else:
             return jsonify({"has_applied": False, "status": None}), 200
 

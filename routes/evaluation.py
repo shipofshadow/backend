@@ -54,7 +54,7 @@ def fetch_evaluatees():
             "status": app.get("status"),
             "is_ofw": flags["is_ofw"],
             "is_farmers_child": flags["is_farmers_child"],
-            "is_ip": app.get("ip_affiliation") is not None,
+            "is_ip": app.get("ip_affiliation") not in ("None", "N/A", None),
             "course_id": app.get("course_id"),
             "department_id": app.get("department_id"),
             "campus_id": app.get("campus_id"),
