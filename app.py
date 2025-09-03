@@ -18,7 +18,13 @@ app = Flask(__name__)
 app.config['JWT_SECRET_KEY'] = Config.JWT_SECRET_KEY
 CORS(app,
      supports_credentials=True,
-     resources={r"/*": {"origins": '*'}})
+     resources={r"/*": {
+         "origins": [
+             "http://localhost:5173",   # dev
+             "https://ischolar.xyz",    # prod
+             "https://www.ischolar.xyz" # prod with www
+         ]
+     }})
 JWTManager(app)
 
 app.register_blueprint(meta_bp)

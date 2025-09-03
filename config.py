@@ -1,13 +1,16 @@
-import os
+from pathlib import Path
 from dotenv import load_dotenv
-
-load_dotenv()
+import os
 
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "docx"}
 
+env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path=env_path)
+print("DB_USER from env:", os.getenv("DB_USER"))
+
 class Config:
-    DB_HOST = os.getenv("DB_HOST", "localhost")
-    DB_USER = os.getenv("DB_USER", "root")
-    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-    DB_NAME = os.getenv("DB_NAME", "ischolar_dev")
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret")
+    DB_HOST = os.getenv("DB_HOST")
+    DB_USER = os.getenv("DB_USER")
+    DB_PASSWORD = os.getenv("DB_PASSWORD")
+    DB_NAME = os.getenv("DB_NAME")
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
