@@ -3,7 +3,8 @@ from db import get_connection
 
 fuzzy_bp = Blueprint("fuzzy_bp", __name__, url_prefix="/api/fuzzy")
 
-@fuzzy_bp.route('/fuzzy-rules', methods=['GET'])
+# Return the rules
+@fuzzy_bp.route('/rules', methods=['GET'])
 def get_fuzzy_rules():
     db = get_connection()
     cursor = db.cursor()
@@ -44,101 +45,52 @@ def get_fuzzy_rules():
         cursor.close()
         db.close()
 
-@fuzzy_bp.route("/fuzzy-variables", methods=["GET"])
-def get_fuzzy_variables():
+@fuzzy_bp.route('/fuzzy-config', methods=['GET'])
+def get_fuzzy_config():
     db = get_connection()
     cursor = db.cursor()
-    cursor.execute("SELECT * FROM fuzzy_variables")
-    data = cursor.fetchall()
-    cursor.close()
-    db.close()
-    return jsonify(data)
+    try:
+        cursor.execute("""
+            SELECT
+                fuzzy_sets.set_id,
+                fuzzy_sets.variable_id,
+                fuzzy_sets.set_name,
+                fuzzy_sets.param_a,
+                fuzzy_sets.param_b, 
+                fuzzy_sets.param_c,
+                fuzzy_rules.description as eligibility,
+                fuzzy_variables.description,
+                fuzzy_variables.variable_name
+            FROM fuzzy_rules
+            JOIN fuzzy_rule_conditions ON fuzzy_rule_conditions.rule_id = fuzzy_rules.rule_id
+            JOIN fuzzy_sets ON fuzzy_sets.set_id = fuzzy_rule_conditions.set_id
+            JOIN fuzzy_variables ON fuzzy_variables.variable_id = fuzzy_sets.variable_id;
+        """)
+        rows = cursor.fetchall()
 
+        variables = {}
+        for row in rows:
+            var_id = row["variable_id"]
+            if var_id not in variables:
+                variables[var_id] = {
+                    "sets": [],
+                    "variable_id": var_id,
+                    "variable_name": row["variable_name"],
+                    "description": row["description"]
+                }
+            variables[var_id]["sets"].append({
+                "description": row["set_name"],
+                "eligibility": row["eligibility"],
+                "param_a": float(row["param_a"]),
+                "param_b": float(row["param_b"]),
+                "param_c": float(row["param_c"])
+            })
 
-@fuzzy_bp.route("/fuzzy-variables", methods=["POST"])
-def create_fuzzy_variable():
-    data = request.get_json()
-    variable_name = data.get("variable_name")
-    description = data.get("description")
+        return jsonify(list(variables.values()))
 
-    db = get_connection()
-    cursor = db.cursor()
-    cursor.execute("""
-                   INSERT INTO fuzzy_variables (variable_name, description)
-                   VALUES (%s, %s)
-                   """, (variable_name, description))
-
-    variable_id = cursor.lastrowid
-    cursor.execute("SELECT * FROM fuzzy_variables WHERE variable_id = %s", (variable_id,))
-    result = cursor.fetchone()
-
-    db.commit()
-    cursor.close()
-    db.close()
-    return jsonify(result)
-
-
-# --- Routes for Fuzzy Sets ---
-
-@fuzzy_bp.route("/fuzzy-sets", methods=["GET"])
-def get_fuzzy_sets():
-    db = get_connection()
-    cursor = db.cursor()
-    cursor.execute("SELECT * FROM fuzzy_sets")
-    data = cursor.fetchall()
-    cursor.close()
-    db.close()
-    return jsonify(data)
-
-
-@fuzzy_bp.route("/fuzzy-sets", methods=["POST"])
-def create_fuzzy_set():
-    data = request.get_json()
-    variable_id = data.get("variable_id")
-    set_name = data.get("set_name")
-    param_a = data.get("param_a")
-    param_b = data.get("param_b")
-    param_c = data.get("param_c")
-
-    db = get_connection()
-    cursor = db.cursor()
-    cursor.execute("""
-                   INSERT INTO fuzzy_sets (variable_id, set_name, param_a, param_b, param_c)
-                   VALUES (%s, %s, %s, %s, %s)
-                   """, (variable_id, set_name, param_a, param_b, param_c))
-
-    set_id = cursor.lastrowid
-    cursor.execute("SELECT * FROM fuzzy_sets WHERE set_id = %s", (set_id,))
-    result = cursor.fetchone()
-
-    db.commit()
-    cursor.close()
-    db.close()
-    return jsonify(result)
-
-
-@fuzzy_bp.route("/fuzzy-sets/<int:set_id>", methods=["PUT"])
-def update_fuzzy_set(set_id):
-    data = request.get_json()
-    param_a = data.get("param_a")
-    param_b = data.get("param_b")
-    param_c = data.get("param_c")
-
-    db = get_connection()
-    cursor = db.cursor()
-    cursor.execute("""
-                   UPDATE fuzzy_sets
-                   SET param_a    = %s,
-                       param_b    = %s,
-                       param_c    = %s,
-                       updated_at = NOW()
-                   WHERE set_id = %s
-                   """, (param_a, param_b, param_c, set_id))
-
-    cursor.execute("SELECT * FROM fuzzy_sets WHERE set_id = %s", (set_id,))
-    result = cursor.fetchone()
-
-    db.commit()
-    cursor.close()
-    db.close()
-    return jsonify(result)
+    except Exception as e:
+        print(f"[ERROR] get_fuzzy_config: {e}")
+        return jsonify({"error": "Failed to fetch fuzzy sets"}), 500
+    finally:
+        cursor.close()
+        db.close()
