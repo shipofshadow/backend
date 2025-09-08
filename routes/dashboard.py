@@ -118,7 +118,7 @@ def applicants_per_course():
                  JOIN departments ON departments.department_id = courses.department_id 
                  JOIN campuses ON campuses.campus_id = departments.campus_id 
                  LEFT JOIN semesters ON semesters.id = applications.semester_id
-        WHERE  applications.deleted_at IS NULL
+        WHERE  applications.deleted_at IS NULL AND semesters.is_active = 1 
         GROUP BY campuses.name, departments.name, courses.name 
         ORDER BY campuses.name, departments.name, courses.name;
     """
@@ -167,15 +167,15 @@ def applications_trend():
         params.append(semester_id)
 
     if campus_id:
-        query += " AND ei.campus_id = %s"
+        query += " AND education_info.campus_id = %s"
         params.append(campus_id)
 
     if department_id:
-        query += " AND ei.department_id = %s"
+        query += " AND education_info.department_id = %s"
         params.append(department_id)
 
     if course_id:
-        query += " AND ei.course_id = %s"
+        query += " AND education_info.course_id = %s"
         params.append(course_id)
 
     query += """

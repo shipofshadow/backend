@@ -9,6 +9,7 @@ from routes.application import application_bp
 from routes.dashboard import dashboard_bp
 from routes.evaluation import evaluations_bp
 from routes.fuzzy_logic import fuzzy_bp
+from routes.prequalify import prequalify_bp
 from routes.profile import profile_bp
 from routes.auth import auth_bp
 from routes.meta import meta_bp
@@ -40,6 +41,7 @@ app.register_blueprint(evaluations_bp)
 app.register_blueprint(scholarships_bp)
 app.register_blueprint(fuzzy_bp)
 app.register_blueprint(scholarship_summary_bp)
+app.register_blueprint(prequalify_bp)
 @app.route("/")
 def index():
     return {"status": "API ready"}, 200
