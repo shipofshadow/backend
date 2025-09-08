@@ -111,12 +111,14 @@ def applicants_per_course():
         SELECT campuses.name AS campus, departments.name AS department, courses.name AS course, COUNT(applications.id) AS total_applicants 
         FROM applications 
                  JOIN students ON students.user_id = applications.student_id 
-                 JOIN education_info ON education_info.student_id = students.user_id 
+                INNER JOIN education_info 
+                            ON education_info.student_id = students.user_id
+                            AND education_info.semester_id = applications.semester_id
                  JOIN courses ON courses.course_id = education_info.course_id 
                  JOIN departments ON departments.department_id = courses.department_id 
                  JOIN campuses ON campuses.campus_id = departments.campus_id 
                  LEFT JOIN semesters ON semesters.id = applications.semester_id
-        WHERE  semesters.is_active = 1 AND applications.deleted_at IS NULL
+        WHERE  applications.deleted_at IS NULL
         GROUP BY campuses.name, departments.name, courses.name 
         ORDER BY campuses.name, departments.name, courses.name;
     """
@@ -148,9 +150,10 @@ def applications_trend():
         FROM applications a
         JOIN semesters s ON s.id = a.semester_id
         JOIN academic_years ay ON ay.id = s.academic_year_id
-        JOIN education_info ei ON ei.student_id = a.student_id
+        INNER JOIN education_info 
+                    ON education_info.student_id = a.student_id
+                    AND education_info.semester_id = s.id      
         WHERE a.deleted_at IS NULL
-          AND ei.deleted_at IS NULL
     """
 
     params = []

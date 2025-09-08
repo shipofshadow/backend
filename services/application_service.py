@@ -35,8 +35,20 @@ def save_application(db, user_id, application):
 
         semester_existing = cursor.fetchone()
 
-        application_id =  semester_existing['id']
-        if not semester_existing:
+        if semester_existing:
+            # Existing semester -> update education_info, use existing application_id
+            application_id = semester_existing['id']
+            cursor.execute("""
+                UPDATE education_info
+                SET campus_id=%s, department_id=%s, course_id=%s,
+                    year_level=%s, total_units=%s, enrollment_status=%s
+                WHERE student_id=%s AND semester_id=%s
+            """, (
+                application.campus, application.department, application.course,
+                application.year_level, application.total_units, application.enrollment_status,
+                user_id, semester_id
+            ))
+        else:
             # New semester -> insert new application
             cursor.execute("""
                 INSERT INTO applications (student_id, semester_id, submitted_at, status)
@@ -54,18 +66,6 @@ def save_application(db, user_id, application):
                 user_id, application.campus, application.department, application.course,
                 semester_id, application.year_level,
                 application.total_units, application.enrollment_status
-            ))
-        else:
-            # Existing semester -> update education_info
-            cursor.execute("""
-                UPDATE education_info
-                SET campus_id=%s, department_id=%s, course_id=%s,
-                    year_level=%s, total_units=%s, enrollment_status=%s
-                WHERE student_id=%s AND semester_id=%s
-            """, (
-                application.campus, application.department, application.course,
-                application.year_level, application.total_units, application.enrollment_status,
-                user_id, semester_id
             ))
 
     else:
@@ -154,38 +154,43 @@ def save_application(db, user_id, application):
 def base_applicant_query():
     return """
         SELECT 
-            applications.*,
+            applications.student_id,
+            applications.id,
+            applications.remarks,
+            applications.status,
             students.*,
-            education_info.*,
+            education_info.year_level,
+            education_info.total_units,
+            education_info.enrollment_status,
             family_background.*,
             addresses.*,
-            campuses.name as campus,
-            departments.name as department,
-            courses.name as course,
-            students.student_id as uid,
+            campuses.*,
+            departments.*,
+            courses.*,
+            students.student_id AS uid,
             semesters.*,
             itr_files.file_path AS itr_file,
             grades_files.file_path AS grades_file,
-            evaluations.*
-
+            evaluations.*,
+            students.user_id AS uuid
         FROM applications
         INNER JOIN students ON students.user_id = applications.student_id
-        INNER JOIN addresses ON addresses.student_id = students.user_id
-        INNER JOIN education_info ON education_info.student_id = students.user_id
-        INNER JOIN family_background ON family_background.student_id = students.user_id
+        LEFT JOIN addresses ON addresses.student_id = students.user_id
+        INNER JOIN education_info 
+            ON education_info.student_id = students.user_id
+            AND education_info.semester_id = applications.semester_id
+        LEFT JOIN family_background ON family_background.student_id = students.user_id
         INNER JOIN semesters ON semesters.id = applications.semester_id
         INNER JOIN academic_years ON academic_years.id = semesters.academic_year_id
         LEFT JOIN evaluations ON evaluations.application_id = applications.id
         -- Files JOIN
         LEFT JOIN application_files AS itr_files 
             ON itr_files.application_id = applications.id AND itr_files.file_type = 'itr'
-        
         LEFT JOIN application_files AS grades_files 
             ON grades_files.application_id = applications.id AND grades_files.file_type = 'grades'
-            
         LEFT JOIN campuses ON education_info.campus_id = campuses.campus_id
         LEFT JOIN departments ON education_info.department_id = departments.department_id
-        LEFT JOIN courses ON education_info.course_id = courses.course_id
+        LEFT JOIN courses ON education_info.course_id = courses.course_id  
     """
 
 def fetch_grades_by_application_ids(cursor, application_ids):

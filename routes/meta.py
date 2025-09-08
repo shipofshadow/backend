@@ -1,8 +1,245 @@
 from flask import jsonify, request, Blueprint
 from db import get_connection
 from services.admin.manage_periods import get_active_period
+from services.meta.fuzzy_logic import FuzzyEligibilitySystem
+import logging
 
 meta_bp = Blueprint('meta', __name__, url_prefix='/api')
+
+# Initialize fuzzy system with connection function (not connection object)
+fuzzy = FuzzyEligibilitySystem(get_connection)
+
+@meta_bp.route('/evaluate', methods=['POST'])
+def evaluate():
+    """
+    Evaluate student eligibility using fuzzy logic.
+
+    Expected JSON payload:
+    {
+        "gwa": 1.75,
+        "income": 15000
+    }
+
+    Returns:
+    {
+        "success": true,
+        "gwa": 1.75,
+        "income": 15000,
+        "score": 0.6429,
+        "classification": "Conditionally Eligible",
+        "memberships": {...},
+        "fired_rules": [...]
+    }
+    """
+    try:
+        # Validate request
+        if not request.is_json:
+            return jsonify({
+                "success": False,
+                "error": "Content-Type must be application/json"
+            }), 400
+
+        data = request.get_json()
+
+        # Validate required fields
+        gwa = data.get("gwa")
+        income = data.get("income")
+
+        if gwa is None or income is None:
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: gwa and income"
+            }), 400
+
+        # Validate data types and ranges
+        try:
+            gwa = float(gwa)
+            income = float(income)
+        except (TypeError, ValueError):
+            return jsonify({
+                "success": False,
+                "error": "gwa and income must be numeric values"
+            }), 400
+
+        # Validate GWA range (Philippine grading system: 1.0 = highest, 5.0 = lowest)
+        if gwa < 1.0 or gwa > 5.0:
+            return jsonify({
+                "success": False,
+                "error": "GWA must be between 1.0 and 5.0"
+            }), 400
+
+        # Validate income range
+        if income < 0:
+            return jsonify({
+                "success": False,
+                "error": "Income must be non-negative"
+            }), 400
+
+        # Run fuzzy logic evaluation
+        result = fuzzy.evaluate(gwa, income)
+
+        # Format response
+        response = {
+            "success": True,
+            "gwa": gwa,
+            "income": income,
+            "score": round(result["score"], 4),
+            "classification": result["classification"],
+            "memberships": {
+                "gwa": {k: round(v, 4) for k, v in result["memberships"]["gwa"].items()},
+                "income": {k: round(v, 4) for k, v in result["memberships"]["income"].items()}
+            }
+        }
+
+        # Include fired rules if available
+        if "fired_rules" in result:
+            response["fired_rules"] = result["fired_rules"]
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logging.error(f"Error in fuzzy evaluation: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+
+@meta_bp.route('/fuzzy-system/reload', methods=['POST'])
+def reload_fuzzy_system():
+    """
+    Reload fuzzy system configuration from database.
+
+    Useful after admin makes changes to fuzzy variables, sets, or rules.
+    """
+    try:
+        fuzzy.reload_from_database()
+
+        return jsonify({
+            "success": True,
+            "message": "Fuzzy system reloaded successfully",
+            "rules_count": len(fuzzy.rules),
+            "variables": list(fuzzy.membership_functions.keys())
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Error reloading fuzzy system: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to reload fuzzy system"
+        }), 500
+
+
+@meta_bp.route('/evaluate-batch', methods=['POST'])
+def evaluate_batch():
+    """
+    Evaluate multiple students at once.
+
+    Expected JSON payload:
+    {
+        "evaluations": [
+            {"student_id": 1, "gwa": 1.75, "income": 15000},
+            {"student_id": 2, "gwa": 2.0, "income": 25000}
+        ]
+    }
+
+    Returns:
+    {
+        "success": true,
+        "results": [
+            {
+                "student_id": 1,
+                "gwa": 1.75,
+                "income": 15000,
+                "score": 0.6429,
+                "classification": "Conditionally Eligible"
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        if not request.is_json:
+            return jsonify({
+                "success": False,
+                "error": "Content-Type must be application/json"
+            }), 400
+
+        data = request.get_json()
+        evaluations = data.get("evaluations", [])
+
+        if not evaluations or not isinstance(evaluations, list):
+            return jsonify({
+                "success": False,
+                "error": "evaluations field must be a non-empty array"
+            }), 400
+
+        results = []
+        errors = []
+
+        for i, eval_data in enumerate(evaluations):
+            try:
+                student_id = eval_data.get("student_id")
+                gwa = float(eval_data.get("gwa", 0))
+                income = float(eval_data.get("income", 0))
+
+                # Validate ranges
+                if gwa < 1.0 or gwa > 5.0:
+                    errors.append(f"Student {student_id}: GWA must be between 1.0 and 5.0")
+                    continue
+
+                if income < 0:
+                    errors.append(f"Student {student_id}: Income must be non-negative")
+                    continue
+
+                # Evaluate
+                result = fuzzy.evaluate(gwa, income)
+
+                results.append({
+                    "student_id": student_id,
+                    "gwa": gwa,
+                    "income": income,
+                    "score": round(result["score"], 4),
+                    "classification": result["classification"]
+                })
+
+            except Exception as e:
+                errors.append(f"Student {eval_data.get('student_id', i)}: {str(e)}")
+
+        response = {
+            "success": True,
+            "results": results,
+            "processed": len(results),
+            "total": len(evaluations)
+        }
+
+        if errors:
+            response["errors"] = errors
+
+        return jsonify(response), 200
+
+    except Exception as e:
+        logging.error(f"Error in batch evaluation: {str(e)}")
+        return jsonify({
+            "success": False,
+            "error": "Internal server error"
+        }), 500
+
+# Error handlers for this blueprint
+@meta_bp.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        "success": False,
+        "error": "Endpoint not found"
+    }), 404
+
+
+@meta_bp.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({
+        "success": False,
+        "error": "Method not allowed"
+    }), 405
 
 @meta_bp.route('/semesters', methods=['GET'])
 def get_semesters():

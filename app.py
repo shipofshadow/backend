@@ -12,6 +12,7 @@ from routes.fuzzy_logic import fuzzy_bp
 from routes.profile import profile_bp
 from routes.auth import auth_bp
 from routes.meta import meta_bp
+from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
 
 app = Flask(__name__)
@@ -38,6 +39,7 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(evaluations_bp)
 app.register_blueprint(scholarships_bp)
 app.register_blueprint(fuzzy_bp)
+app.register_blueprint(scholarship_summary_bp)
 @app.route("/")
 def index():
     return {"status": "API ready"}, 200

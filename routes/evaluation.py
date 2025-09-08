@@ -10,7 +10,7 @@ from db import get_connection
 from utils.utils import smart_detect_flags
 
 evaluations_bp = Blueprint('evaluations', __name__, url_prefix='/api/evaluations')
-fuzzy = FuzzyEligibilitySystem()
+fuzzy = FuzzyEligibilitySystem(get_connection)
 
 # ============================================
 #       GET THE EVALUATEES
@@ -23,8 +23,8 @@ def fetch_evaluatees():
 
     query = base_applicant_query() + """
       WHERE applications.deleted_at IS NULL 
-      AND applications.status = 'pending'
       AND semesters.is_active = 1 
+      ORDER BY applications.status
     """
 
     cursor.execute(query)
@@ -100,7 +100,7 @@ def evaluate(application_id):
             "application_id": int(application_id),
             "score": score,
             "classification": classification,
-            "gwa": gwa
+            "gwa": gwa,
         })
 
     except Exception as e:
