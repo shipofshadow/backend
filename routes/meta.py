@@ -1,5 +1,5 @@
 from flask import jsonify, request, Blueprint
-from db import get_connection
+from storage import get_connection
 from services.admin.manage_periods import get_active_period
 from services.meta.fuzzy_logic import FuzzyEligibilitySystem
 import logging
@@ -13,23 +13,29 @@ fuzzy = FuzzyEligibilitySystem(get_connection)
 def evaluate():
     """
     Evaluate student eligibility using fuzzy logic.
-
-    Expected JSON payload:
-    {
-        "gwa": 1.75,
-        "income": 15000
-    }
-
-    Returns:
-    {
-        "success": true,
-        "gwa": 1.75,
-        "income": 15000,
-        "score": 0.6429,
-        "classification": "Conditionally Eligible",
-        "memberships": {...},
-        "fired_rules": [...]
-    }
+    ---
+    tags:
+      - Fuzzy Logic
+    parameters:
+      - in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+          properties:
+            gwa:
+              type: number
+              example: 1.75
+            income:
+              type: number
+              example: 15000
+    responses:
+      200:
+        description: Eligibility result
+      400:
+        description: Invalid input
+      500:
+        description: Internal server error
     """
     try:
         # Validate request
@@ -109,9 +115,16 @@ def evaluate():
 def reload_fuzzy_system():
     """
     Reload fuzzy system configuration from database.
-
-    Useful after admin makes changes to fuzzy variables, sets, or rules.
+    ---
+    tags:
+      - Fuzzy Logic
+    responses:
+      200:
+        description: Reload successful
+      500:
+        description: Failed to reload fuzzy system
     """
+
     try:
         fuzzy.reload_from_database()
 
@@ -134,29 +147,34 @@ def reload_fuzzy_system():
 def evaluate_batch():
     """
     Evaluate multiple students at once.
-
-    Expected JSON payload:
-    {
-        "evaluations": [
-            {"student_id": 1, "gwa": 1.75, "income": 15000},
-            {"student_id": 2, "gwa": 2.0, "income": 25000}
-        ]
-    }
-
-    Returns:
-    {
-        "success": true,
-        "results": [
-            {
-                "student_id": 1,
-                "gwa": 1.75,
-                "income": 15000,
-                "score": 0.6429,
-                "classification": "Conditionally Eligible"
-            },
-            ...
-        ]
-    }
+    ---
+    tags:
+      - Fuzzy Logic
+    parameters:
+      - in: body
+        name: evaluations
+        required: true
+        schema:
+          type: object
+          properties:
+            evaluations:
+              type: array
+              items:
+                type: object
+                properties:
+                  student_id:
+                    type: integer
+                  gwa:
+                    type: number
+                  income:
+                    type: number
+    responses:
+      200:
+        description: Batch evaluation results
+      400:
+        description: Invalid input
+      500:
+        description: Internal server error
     """
     try:
         if not request.is_json:
@@ -243,6 +261,27 @@ def method_not_allowed(error):
 
 @meta_bp.route('/semesters', methods=['GET'])
 def get_semesters():
+    """
+    Get semesters, optionally filtered by semester_id or academic_year_id.
+    ---
+    tags:
+      - Academic
+    parameters:
+      - name: semester_id
+        in: query
+        type: integer
+        required: false
+      - name: academic_year_id
+        in: query
+        type: integer
+        required: false
+    responses:
+      200:
+        description: Semester information
+      404:
+        description: Not found
+    """
+
     semester_id = request.args.get('semester_id', type=int)
     academic_year_id = request.args.get('academic_year_id', type=int)
 
@@ -299,6 +338,18 @@ def get_semesters():
 
 @meta_bp.route('/active-academic-term', methods=['GET'])
 def current_academic_year():
+    """
+    Get the currently active academic year and semester.
+    ---
+    tags:
+      - Academic
+    responses:
+      200:
+        description: Active academic term
+      404:
+        description: No active academic term found
+    """
+
     data = get_active_period()
     if data:
         formatted = f"AY {data['year_start']}-{data['year_end']} - {data['semester_name']}"
@@ -315,6 +366,16 @@ def current_academic_year():
 
 @meta_bp.route('/campuses', methods=['GET'])
 def get_campuses():
+    """
+    Get all campuses.
+    ---
+    tags:
+      - Meta
+    responses:
+      200:
+        description: List of campuses
+    """
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT campus_id, name FROM campuses")
@@ -327,6 +388,21 @@ def get_campuses():
 
 @meta_bp.route('/departments', methods=['GET'])
 def get_departments():
+    """
+    Get departments, optionally filtered by campus_id.
+    ---
+    tags:
+      - Meta
+    parameters:
+      - name: campus_id
+        in: query
+        type: integer
+        required: false
+    responses:
+      200:
+        description: List of departments
+    """
+
     campus_id = request.args.get('campus_id')
     conn = get_connection()
     cursor = conn.cursor()
@@ -343,6 +419,21 @@ def get_departments():
 
 @meta_bp.route('/courses', methods=['GET'])
 def get_courses():
+    """
+    Get courses, optionally filtered by department_id.
+    ---
+    tags:
+      - Meta
+    parameters:
+      - name: department_id
+        in: query
+        type: integer
+        required: false
+    responses:
+      200:
+        description: List of courses
+    """
+
     department_id = request.args.get('department_id')
     conn = get_connection()
     cursor = conn.cursor()

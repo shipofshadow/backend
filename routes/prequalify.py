@@ -4,7 +4,7 @@ import time
 from flask import request, jsonify, Blueprint
 from flask_jwt_extended import jwt_required
 
-from db import get_connection
+from storage import get_connection
 from services.meta.fuzzy_logic import FuzzyEligibilitySystem
 
 prequalify_bp = Blueprint("prequalify", __name__, url_prefix="/api/prequalify")

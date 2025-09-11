@@ -1,21 +1,64 @@
 import os
 import re
 import uuid
+import subprocess
 from decimal import Decimal, InvalidOperation
 
 from werkzeug.utils import secure_filename
-from config import ALLOWED_EXTENSIONS
+from PIL import Image
+from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER
+
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return (
+        '.' in filename
+        and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    )
 
-def save_file(file, user_id, file_type, upload_folder):
+def save_file(file, user_id, file_type):
+    # Get extension safely
     _, ext = os.path.splitext(secure_filename(file.filename))
+    ext = ext.lower()
     unique_id = uuid.uuid4().hex
     filename = f"{user_id}_{file_type}_{unique_id}{ext}"
-    path = os.path.join(upload_folder, filename)
-    file.save(path)
+    path = os.path.join(UPLOAD_FOLDER, filename)
+
+    # IMAGE COMPRESSION
+    if ext in [".jpg", ".jpeg", ".png"]:
+        try:
+            img = Image.open(file)
+            if ext in [".jpg", ".jpeg"]:
+                img.save(path, "JPEG", optimize=True, quality=70)  # 70% quality
+            elif ext == ".png":
+                img.save(path, "PNG", optimize=True)
+        except Exception as e:
+            # fallback if Pillow fails
+            file.save(path)
+
+    # PDF COMPRESSION (Ghostscript required: apt install ghostscript)
+    # elif ext == ".pdf":
+    #     tmp_path = os.path.join("/tmp", filename)
+    #     file.save(tmp_path)
+    #     try:
+    #         subprocess.run([
+    #             "gs",
+    #             "-sDEVICE=pdfwrite",
+    #             "-dCompatibilityLevel=1.4",
+    #             "-dPDFSETTINGS=/ebook",
+    #             "-dNOPAUSE", "-dQUIET", "-dBATCH",
+    #             f"-sOutputFile={path}", tmp_path
+    #         ], check=True)
+    #         os.remove(tmp_path)
+    #     except Exception as e:
+    #         # fallback if Ghostscript fails
+    #         os.rename(tmp_path, path)
+
+    # DOCX or others → save
+    else:
+        file.save(path)
+
     return path
+
 
 def smart_detect_flags(*texts):
     """Scans multiple text fields for common keywords indicating eligibility flags."""

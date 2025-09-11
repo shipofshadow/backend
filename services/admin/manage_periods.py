@@ -1,4 +1,4 @@
-from db import get_connection
+from storage import get_connection
 
 def get_active_period():
     db = get_connection()

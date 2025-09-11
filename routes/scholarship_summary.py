@@ -2,7 +2,7 @@
 from flask import Blueprint, jsonify, request
 from datetime import datetime
 from flask_jwt_extended import jwt_required
-from db import get_connection
+from storage import get_connection
 
 scholarship_summary_bp = Blueprint('scholarship_summary', __name__, url_prefix='/api/scholarship-summary')
 

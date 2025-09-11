@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from db import get_connection
+from storage import get_connection
 
 fuzzy_bp = Blueprint("fuzzy_bp", __name__, url_prefix="/api/fuzzy")
 
@@ -8,6 +8,29 @@ fuzzy_bp = Blueprint("fuzzy_bp", __name__, url_prefix="/api/fuzzy")
 
 @fuzzy_bp.route('/variables', methods=['GET'])
 def get_fuzzy_variables():
+    """
+    Get all fuzzy variables
+    ---
+    tags:
+      - Fuzzy Variables
+    responses:
+      200:
+        description: List of fuzzy variables
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              variable_id:
+                type: integer
+              variable_name:
+                type: string
+              description:
+                type: string
+      500:
+        description: Failed to fetch fuzzy variables
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -24,6 +47,31 @@ def get_fuzzy_variables():
 
 @fuzzy_bp.route('/variables', methods=['POST'])
 def create_fuzzy_variable():
+    """
+    Create a new fuzzy variable
+    ---
+    tags:
+      - Fuzzy Variables
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            variable_name:
+              type: string
+            description:
+              type: string
+          required:
+            - variable_name
+    responses:
+      201:
+        description: Variable created successfully
+      500:
+        description: Failed to create variable
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -44,6 +92,35 @@ def create_fuzzy_variable():
 
 @fuzzy_bp.route('/variables/<int:variable_id>', methods=['PUT'])
 def update_fuzzy_variable(variable_id):
+    """
+    Update a fuzzy variable
+    ---
+    tags:
+      - Fuzzy Variables
+    parameters:
+      - name: variable_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            variable_name:
+              type: string
+            description:
+              type: string
+          required:
+            - variable_name
+    responses:
+      200:
+        description: Variable updated successfully
+      500:
+        description: Failed to update variable
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -66,6 +143,25 @@ def update_fuzzy_variable(variable_id):
 
 @fuzzy_bp.route('/variables/<int:variable_id>', methods=['DELETE'])
 def delete_fuzzy_variable(variable_id):
+    """
+    Delete a fuzzy variable
+    ---
+    tags:
+      - Fuzzy Variables
+    parameters:
+      - name: variable_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Variable deleted successfully
+      400:
+        description: Cannot delete variable with associated sets
+      500:
+        description: Failed to delete variable
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -89,6 +185,17 @@ def delete_fuzzy_variable(variable_id):
 
 @fuzzy_bp.route('/sets', methods=['GET'])
 def get_fuzzy_sets():
+    """
+    Get all fuzzy sets
+    ---
+    tags:
+      - Fuzzy Sets
+    responses:
+      200:
+        description: List of fuzzy sets
+      500:
+        description: Failed to fetch fuzzy sets
+    """
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -110,6 +217,41 @@ def get_fuzzy_sets():
 
 @fuzzy_bp.route('/sets', methods=['POST'])
 def create_fuzzy_set():
+    """
+    Create a new fuzzy set
+    ---
+    tags:
+      - Fuzzy Sets
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            variable_id:
+              type: integer
+            set_name:
+              type: string
+            param_a:
+              type: number
+            param_b:
+              type: number
+            param_c:
+              type: number
+          required:
+            - variable_id
+            - set_name
+            - param_a
+            - param_b
+            - param_c
+    responses:
+      201:
+        description: Set created successfully
+      500:
+        description: Failed to create set
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -131,6 +273,42 @@ def create_fuzzy_set():
 
 @fuzzy_bp.route('/sets/<int:set_id>', methods=['PUT'])
 def update_fuzzy_set(set_id):
+    """
+    Update a fuzzy set
+    ---
+    tags:
+      - Fuzzy Sets
+    parameters:
+      - name: set_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            set_name:
+              type: string
+            param_a:
+              type: number
+            param_b:
+              type: number
+            param_c:
+              type: number
+          required:
+            - set_name
+            - param_a
+            - param_b
+            - param_c
+    responses:
+      200:
+        description: Set updated successfully
+      500:
+        description: Failed to update set
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -156,6 +334,25 @@ def update_fuzzy_set(set_id):
 
 @fuzzy_bp.route('/sets/<int:set_id>', methods=['DELETE'])
 def delete_fuzzy_set(set_id):
+    """
+    Delete a fuzzy set
+    ---
+    tags:
+      - Fuzzy Sets
+    parameters:
+      - name: set_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Set deleted successfully
+      400:
+        description: Cannot delete set used in rules
+      500:
+        description: Failed to delete set
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -179,6 +376,18 @@ def delete_fuzzy_set(set_id):
 
 @fuzzy_bp.route('/rules', methods=['GET'])
 def get_fuzzy_rules():
+    """
+    Get all fuzzy rules
+    ---
+    tags:
+      - Fuzzy Rules
+    responses:
+      200:
+        description: List of fuzzy rules
+      500:
+        description: Failed to fetch fuzzy rules
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -221,6 +430,39 @@ def get_fuzzy_rules():
 
 @fuzzy_bp.route('/rules', methods=['POST'])
 def create_fuzzy_rule():
+    """
+    Create a new fuzzy rule
+    ---
+    tags:
+      - Fuzzy Rules
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            consequent_value:
+              type: number
+            description:
+              type: string
+            conditions:
+              type: array
+              items:
+                type: object
+                properties:
+                  set_id:
+                    type: integer
+          required:
+            - consequent_value
+            - conditions
+    responses:
+      201:
+        description: Rule created successfully
+      500:
+        description: Failed to create rule
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -254,6 +496,43 @@ def create_fuzzy_rule():
 
 @fuzzy_bp.route('/rules/<int:rule_id>', methods=['PUT'])
 def update_fuzzy_rule(rule_id):
+    """
+    Update a fuzzy rule
+    ---
+    tags:
+      - Fuzzy Rules
+    parameters:
+      - name: rule_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            consequent_value:
+              type: number
+            description:
+              type: string
+            conditions:
+              type: array
+              items:
+                type: object
+                properties:
+                  set_id:
+                    type: integer
+          required:
+            - consequent_value
+            - conditions
+    responses:
+      200:
+        description: Rule updated successfully
+      500:
+        description: Failed to update rule
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -290,6 +569,24 @@ def update_fuzzy_rule(rule_id):
 
 @fuzzy_bp.route('/rules/<int:rule_id>', methods=['DELETE'])
 def delete_fuzzy_rule(rule_id):
+    """
+    Delete a fuzzy rule
+    ---
+    tags:
+      - Fuzzy Rules
+    parameters:
+      - name: rule_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Rule deleted successfully
+      500:
+        description: Failed to delete rule
+    """
+
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -314,7 +611,19 @@ def delete_fuzzy_rule(rule_id):
 
 @fuzzy_bp.route('/fuzzy-config', methods=['GET'])
 def get_fuzzy_config():
-    """Get the complete fuzzy configuration for the frontend"""
+
+    """
+    Get the complete fuzzy configuration
+    ---
+    tags:
+      - Fuzzy Config
+    responses:
+      200:
+        description: Full configuration with variables and sets
+      500:
+        description: Failed to fetch configuration
+    """
+
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -363,32 +672,22 @@ def get_fuzzy_config():
         db.close()
 
 
-@fuzzy_bp.route('/config/bulk-update', methods=['POST'])
-def bulk_update_config():
-    """Update the entire fuzzy configuration"""
-    db = get_connection()
-    cursor = db.cursor()
-    try:
-        data = request.json
-
-        # This would be a complex operation to replace the entire config
-        # For now, return a placeholder
-        return jsonify({"message": "Bulk update not implemented yet"}), 501
-
-    except Exception as e:
-        db.rollback()
-        print(f"[ERROR] bulk_update_config: {e}")
-        return jsonify({"error": "Failed to update configuration"}), 500
-    finally:
-        cursor.close()
-        db.close()
-
 
 # ========== UTILITY ENDPOINTS ==========
 
 @fuzzy_bp.route('/validate-config', methods=['GET'])
 def validate_config():
-    """Validate the current fuzzy logic configuration"""
+    """
+    Validate the current fuzzy configuration
+    ---
+    tags:
+      - Fuzzy Config
+    responses:
+      200:
+        description: Validation result with issues list
+      500:
+        description: Failed to validate configuration
+    """
     db = get_connection()
     cursor = db.cursor()
     try:
@@ -431,25 +730,3 @@ def validate_config():
     finally:
         cursor.close()
         db.close()
-
-
-@fuzzy_bp.route('/test-evaluation', methods=['POST'])
-def test_evaluation():
-    """Test fuzzy evaluation with given inputs"""
-    try:
-        data = request.json
-        inputs = data.get('inputs', {})  # e.g., {'gwa': 3.5, 'income': 25000}
-
-        # Here you would integrate with your fuzzy logic system
-        # For now, return a placeholder
-        result = {
-            "score": 0.75,
-            "classification": "Eligible",
-            "details": f"Test evaluation with inputs: {inputs}"
-        }
-
-        return jsonify(result), 200
-
-    except Exception as e:
-        print(f"[ERROR] test_evaluation: {e}")
-        return jsonify({"error": "Failed to test evaluation"}), 500

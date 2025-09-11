@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
 
-from db import get_connection
+from storage import get_connection
 from models.application import Application
 from services.application_service import save_application, insert_grades
 from services.admin.manage_periods import get_active_period
@@ -37,6 +37,44 @@ def fetch_applications():
 @application_bp.route("/apply", methods=["POST"])
 @jwt_required()
 def submit_application():
+    """
+    Submit a new scholarship application.
+
+    Accepts multipart/form-data including:
+    - Applicant form fields
+    - Files: itr, grades
+
+    Automatically attaches the active semester and academic year.
+
+    ---
+    tags:
+      - Applications
+    security:
+      - jwt: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: itr
+        type: file
+        required: true
+      - in: formData
+        name: grades
+        type: file
+        required: true
+      - in: formData
+        name: ...
+        type: string
+        description: All other applicant fields
+    responses:
+      200:
+        description: Application submitted successfully
+      400:
+        description: Missing files or invalid file format
+      500:
+        description: Internal server error
+    """
+
     user_id = get_jwt_identity()
     data = parse_form_data(request.form)
 
@@ -49,8 +87,8 @@ def submit_application():
     if not allowed_file(itr_file.filename) or not allowed_file(grades_file.filename):
         return jsonify({"error": "Invalid file format"}), 400
 
-    itr_filename = save_file(itr_file, user_id, "itr", UPLOAD_FOLDER)
-    grades_filename = save_file(grades_file, user_id, "grades", UPLOAD_FOLDER)
+    itr_filename = save_file(itr_file, user_id, "itr")
+    grades_filename = save_file(grades_file, user_id, "grades")
 
     data["itr"] = itr_filename
     data["grades"] = grades_filename
@@ -91,6 +129,25 @@ def submit_application():
 @application_bp.route('/status', methods=['GET'])
 @jwt_required()
 def check_application_status():
+    """
+    Check if the authenticated user has submitted an application for the active semester.
+
+    Returns status and submission timestamp if application exists.
+
+    ---
+    tags:
+      - Applications
+    security:
+      - jwt: []
+    responses:
+      200:
+        description: Current application status
+      400:
+        description: No active semester found
+      500:
+        description: Could not check application status
+    """
+
     try:
         user_id = int(get_jwt_identity())
         db = get_connection()

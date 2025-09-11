@@ -1,7 +1,10 @@
+import json
+import uuid
+
 import pymysql
 from flask_jwt_extended import create_access_token, create_refresh_token
 
-from db import get_connection
+from storage import get_connection, redis_client
 from models.user import User
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
@@ -25,10 +28,23 @@ class AuthService:
                 token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
                 refresh_token = create_refresh_token(identity=str(user.id), additional_claims={"role": user.role})
 
+                # For future use
+                session_id = str(uuid.uuid4())
+                session_key = f"session:{session_id}"
+
+                session_data = {
+                    "user_id": user.id,
+                    "role": user.role,
+                    "jwt": token,
+                    "refresh_token": refresh_token
+                }
+                redis_client.set(session_key, json.dumps(session_data), ex=3600)
+
                 response_data = {
                     "token": token,
                     "refresh_token": refresh_token,
-                    "user": user.to_dict()
+                    "user": user.to_dict(),
+                    "session_id": session_id
                 }
 
                 if user.role != "student":

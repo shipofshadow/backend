@@ -1,4 +1,4 @@
-from db import get_connection
+from storage import get_connection
 
 # ---------- Campus ----------
 def get_campuses():

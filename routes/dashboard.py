@@ -1,5 +1,5 @@
 from flask import jsonify, request, Blueprint
-from db import get_connection
+from storage import get_connection
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/api/dashboard')
 

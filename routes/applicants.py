@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, request, Blueprint, send_from_directory
 from flask_jwt_extended import jwt_required
 
-from db import get_connection
+from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from utils.decorator import admin_required
@@ -12,6 +12,20 @@ applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
 
 @applicants_bp.route('/files/<path:filename>', methods=['GET'])
 def get_uploaded_file(filename):
+    """
+    Download an uploaded file by filename.
+    ---
+    tags:
+      - Applicants
+    parameters:
+      - in: path
+        name: filename
+        type: string
+        required: true
+    responses:
+      200:
+        description: File downloaded successfully
+    """
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
@@ -46,17 +60,49 @@ def fetch_applicants_by_status(status: str):
 @applicants_bp.route("/qualified", methods=["GET"])
 @jwt_required()
 def get_all_qualified_applicants():
+    """
+    Get all applicants with status 'approved'.
+    ---
+    tags:
+      - Applicants
+    security:
+      - jwt: []
+    responses:
+      200:
+        description: List of approved applicants
+    """
+
     return jsonify(fetch_applicants_by_status("approved")), 200
 
 
 @applicants_bp.route("/pending", methods=["GET"])
 def get_pending_applicants():
+    """
+    Get all applicants with status 'pending'.
+    ---
+    tags:
+      - Applicants
+    responses:
+      200:
+        description: List of pending applicants
+    """
+
     return jsonify(fetch_applicants_by_status("pending")), 200
 
 
 @applicants_bp.route("/", methods=["GET"])
-# @jwt_required()
+@jwt_required()
 def get_all_applicants():
+    """
+    Get all applicants (active semester).
+    ---
+    tags:
+      - Applicants
+    responses:
+      200:
+        description: List of all applicants
+    """
+
     db = get_connection()
     cursor = db.cursor()
     cursor.execute(base_applicant_query() + " WHERE applications.deleted_at IS NULL AND semesters.is_active = 1")
@@ -80,6 +126,18 @@ def get_all_applicants():
 @applicants_bp.route("/archived", methods=["GET"])
 @jwt_required()
 def get_archived_applicants():
+    """
+    Get all archived applicants (deleted applications).
+    ---
+    tags:
+      - Applicants
+    security:
+      - jwt: []
+    responses:
+      200:
+        description: List of archived applicants
+    """
+
     db = get_connection()
     cursor = db.cursor()
 
@@ -109,6 +167,18 @@ def get_archived_applicants():
 @applicants_bp.route("/not-applied", methods=["GET"])
 @jwt_required()
 def get_not_applied():
+    """
+    Get students who have not submitted applications for the active semester.
+    ---
+    tags:
+      - Applicants
+    security:
+      - jwt: []
+    responses:
+      200:
+        description: List of students not applied
+    """
+
     db = get_connection()
     cursor = db.cursor()
 
@@ -149,6 +219,23 @@ AND s.id NOT IN (
 
 @applicants_bp.route('/<int:applicantId>', methods=['GET'])
 def get_applicant_by_id(applicantId):
+    """
+    Get detailed information about an applicant by application ID.
+    ---
+    tags:
+      - Applicants
+    parameters:
+      - in: path
+        name: applicantId
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Applicant details with grades
+      404:
+        description: Applicant not found
+    """
+
     db = get_connection()
     cursor = db.cursor()
     cursor.execute(base_applicant_query() + " WHERE semesters.is_active = 1 AND applications.id = %s", (applicantId,))
