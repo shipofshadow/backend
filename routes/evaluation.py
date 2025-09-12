@@ -513,10 +513,10 @@ def recommend(application_id):
         # Mark recommendations as generated
         cursor.execute("""
                        UPDATE evaluations
-                       SET recommendations_generated = 1,
+                       SET recommendations_generated = %s,
                            updated_at                = NOW()
                        WHERE application_id = %s
-                       """, (application_id,))
+                       """, (len(recommendations), application_id,))
 
         connection.commit()
 
@@ -1199,109 +1199,6 @@ def batch_evaluate():
         if 'connection' in locals():
             connection.rollback()
         logger.error(f"Error in batch evaluation: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-    finally:
-        if 'cursor' in locals():
-            cursor.close()
-        if 'connection' in locals():
-            connection.close()
-
-
-@evaluations_bp.route('/batch/recommend', methods=['POST'])
-@jwt_required()
-def batch_recommend():
-    """Batch generate recommendations for multiple applications"""
-    try:
-        data = request.get_json()
-        application_ids = data.get('application_ids', [])
-
-        if not application_ids:
-            return jsonify({"error": "No application IDs provided"}), 400
-
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        results = []
-        errors = []
-
-        for application_id in application_ids:
-            try:
-                # Fetch applicant data
-                cursor.execute(
-                    base_applicant_query() + " WHERE semesters.is_active = 1 AND applications.id = %s",
-                    (application_id,)
-                )
-                applicant = cursor.fetchone()
-
-                if not applicant:
-                    errors.append(f"Application {application_id}: Not found")
-                    continue
-
-                # Extract applicant characteristics
-                applicant_data = extract_applicant_flags(applicant)
-
-                # Get evaluation results
-                cursor.execute("""
-                               SELECT score, classification, gwa, income, total_units
-                               FROM evaluations
-                               WHERE application_id = %s
-                                 AND deleted_at IS NULL
-                               """, (application_id,))
-
-                evaluation_result = cursor.fetchone()
-                if not evaluation_result:
-                    errors.append(f"Application {application_id}: Not evaluated")
-                    continue
-
-                evaluation_data = {
-                    "score": evaluation_result["score"],
-                    "classification": evaluation_result["classification"],
-                    "gwa": evaluation_result["gwa"],
-                    "income": evaluation_result["income"],
-                    "units_enrolled": evaluation_result["total_units"]
-                }
-
-                # Generate recommendations
-                recommendations = generate_scholarship_recommendations(
-                    cursor, application_id, applicant_data, evaluation_data
-                )
-
-                # Store recommendations
-                store_recommendations(cursor, application_id, recommendations)
-
-                # Mark as generated
-                cursor.execute("""
-                               UPDATE evaluations
-                               SET recommendations_generated = 1,
-                                   updated_at                = NOW()
-                               WHERE application_id = %s
-                               """, (application_id,))
-
-                results.append({
-                    "application_id": application_id,
-                    "recommendations_count": len(recommendations),
-                    "status": "success"
-                })
-
-            except Exception as e:
-                errors.append(f"Application {application_id}: {str(e)}")
-
-        connection.commit()
-
-        logger.info(f"Batch recommendations completed: {len(results)} successful, {len(errors)} errors")
-
-        return jsonify({
-            "results": results,
-            "errors": errors,
-            "total_processed": len(application_ids),
-            "successful": len(results),
-            "failed": len(errors)
-        }), 200
-
-    except Exception as e:
-        if 'connection' in locals():
-            connection.rollback()
-        logger.error(f"Error in batch recommendations: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
     finally:
         if 'cursor' in locals():

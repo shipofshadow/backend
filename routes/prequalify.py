@@ -289,38 +289,3 @@ def get_improvement_tips(score, classification):
         tips.append("⚠️ You may qualify for some scholarships. Consider applying to multiple programs")
 
     return tips
-
-
-# Health check endpoint for monitoring
-@prequalify_bp.route('/health', methods=['GET'])
-def prequalify_health():
-    """Health check for prequalification service"""
-    start_time = time.time()
-
-    try:
-        # Test database connection
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-
-        # Test fuzzy system
-        fuzzy = FuzzyEligibilitySystem(get_connection)
-        test_result = fuzzy.evaluate(2.0, 30000)  # Quick test
-
-        response_time = round((time.time() - start_time) * 1000, 2)
-
-        return jsonify({
-            'status': 'healthy',
-            'database': 'connected',
-            'fuzzy_system': 'operational',
-            'response_time_ms': response_time,
-            'cache_status':  'disabled'
-        })
-
-    except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'error': str(e),
-            'response_time_ms': round((time.time() - start_time) * 1000, 2)
-        }), 500

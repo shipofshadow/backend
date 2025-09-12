@@ -1,4 +1,5 @@
 from flask import Flask, jsonify
+from flask_caching import Cache
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
@@ -19,8 +20,13 @@ from routes.scholarships import scholarships_bp
 from flasgger import Swagger
 
 app = Flask(__name__)
-
+cache = Cache()
 app.config['JWT_SECRET_KEY'] = Config.JWT_SECRET_KEY
+app.config["CACHE_TYPE"] = "RedisCache"
+app.config["CACHE_REDIS_HOST"] = Config.REDIS_HOST
+app.config["CACHE_REDIS_PORT"] = Config.REDIS_PORT
+app.config["CACHE_REDIS_PASSWORD"] = Config.REDIS_PASSWORD
+app.config["CACHE_DEFAULT_TIMEOUT"] = 60
 CORS(app,
      supports_credentials=True,
      resources={r"/*": {
@@ -31,7 +37,7 @@ CORS(app,
          ]
      }})
 JWTManager(app)
-
+cache.init_app(app)
 app.register_blueprint(meta_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(profile_bp)
