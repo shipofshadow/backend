@@ -1,12 +1,14 @@
+import json
 import os
 import re
 import uuid
 import subprocess
 from decimal import Decimal, InvalidOperation
+from typing import Dict, Any
 
 from werkzeug.utils import secure_filename
 from PIL import Image
-from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER
+from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG
 
 
 def allowed_file(filename):
@@ -97,3 +99,78 @@ def compute_gwa(grades: list) -> float:
     except (InvalidOperation, TypeError, KeyError) as e:
         print("GWA computation failed:", e)
         return 0.0
+
+
+def safe_json_parse(config_str: str, default: Dict = None) -> Dict:
+    """Safely parse JSON configuration with fallback - FIXED VERSION"""
+    # print(f"Input config_str: {config_str}")
+
+    if not config_str:
+        # print("Empty config_str, returning default")
+        return default or SCHOLARSHIP_CONFIG.copy()
+
+    try:
+        config = json.loads(config_str)
+        # print(f"Parsed config: {config}")
+
+        if isinstance(config, str):
+            config = json.loads(config)
+            # print(f"Double parsed config: {config}")
+
+        if not isinstance(config, dict):
+            # print("Config is not a dict, returning default")
+            return default or SCHOLARSHIP_CONFIG.copy()
+
+        # Start with a COPY of the default config (important!)
+        merged_config = {}
+
+        # First, copy all default values
+        for key, value in SCHOLARSHIP_CONFIG.items():
+            if isinstance(value, dict):
+                merged_config[key] = value.copy()  # Shallow copy for nested dicts
+            elif isinstance(value, list):
+                merged_config[key] = value.copy()  # Copy lists
+            else:
+                merged_config[key] = value
+
+        # print(f"Initial merged_config: {merged_config}")
+
+        # Now override with values from the parsed config
+        for key, value in config.items():
+            if key == "priorities" and isinstance(value, dict):
+                # Merge priorities specifically
+                # print(f"Merging priorities: default={merged_config['priorities']}, override={value}")
+                for priority_key, priority_value in value.items():
+                    merged_config["priorities"][priority_key] = priority_value
+                # print(f"After priority merge: {merged_config['priorities']}")
+            else:
+                merged_config[key] = value
+
+        # print(f"Final merged_config: {merged_config}")
+        return merged_config
+
+    except (json.JSONDecodeError, TypeError) as e:
+        print(f"Error parsing JSON config: {e}")
+        return default or SCHOLARSHIP_CONFIG.copy()
+
+def extract_applicant_flags(applicant: Dict) -> Dict[str, Any]:
+    """Extract and process applicant flags and data"""
+    flags = smart_detect_flags(
+        applicant.get("father_occupation", ""),
+        applicant.get("mother_occupation", ""),
+    )
+
+    total_income = (applicant.get("father_income") or 0) + (applicant.get("mother_income") or 0)
+
+    return {
+        "is_ofw": flags["is_ofw"],
+        "is_farmers_child": flags["is_farmers_child"],
+        "is_ip": applicant.get("ip_affiliation") not in ("None", "N/A", None, "", True),
+        "is_pwd": applicant.get("is_pwd", False),
+        "course_id": applicant.get("course_id", 0),
+        "department_id": applicant.get("department_id", 0),
+        "campus_id": applicant.get("campus_id", 0),
+        "year_level": applicant.get("year_level", 0),
+        "total_income": total_income
+    }
+

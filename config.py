@@ -17,3 +17,23 @@ class Config:
     REDIS_PORT = int(os.getenv("REDIS_PORT"))
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
+
+SCHOLARSHIP_CONFIG = {
+    "min_gwa": None,
+    "max_gwa": None,
+    "min_income": None,
+    "max_income": None,
+    "priorities": {
+        "must_be_ofw": False,
+        "prefer_farmers_child": False,
+        "require_ip": False,
+        "prefer_pwd": False
+    },
+    "preferred_course_ids": [],
+    "preferred_department_ids": [],
+    "preferred_campus_ids": [],
+    "preferred_year_levels": [],
+    "min_units_enrolled": None,
+    "max_units_enrolled": None,
+    "priority": []
+}

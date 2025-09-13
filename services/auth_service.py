@@ -19,32 +19,19 @@ class AuthService:
                 cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
                 data = cursor.fetchone()
                 if not data:
-                    return error("No username found"), 401
+                    return error("The username you entered does not exist."), 401
                 user = User(data)
 
                 if not verify_password(password, user.password):
-                    return error("Invalid username or password"), 401
+                    return error("The password that you entered is incorrect."), 401
 
                 token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
                 refresh_token = create_refresh_token(identity=str(user.id), additional_claims={"role": user.role})
-
-                # For future use
-                session_id = str(uuid.uuid4())
-                session_key = f"session:{session_id}"
-
-                session_data = {
-                    "user_id": user.id,
-                    "role": user.role,
-                    "jwt": token,
-                    "refresh_token": refresh_token
-                }
-                redis_client.set(session_key, json.dumps(session_data), ex=3600)
 
                 response_data = {
                     "token": token,
                     "refresh_token": refresh_token,
                     "user": user.to_dict(),
-                    "session_id": session_id
                 }
 
                 if user.role != "student":
@@ -66,6 +53,11 @@ class AuthService:
                 cursor.execute("SELECT id FROM users WHERE username = %s", (data.get("username"),))
                 if cursor.fetchone():
                     return error("Username already exists"), 409
+
+                # Check if student exists
+                cursor.execute("SELECT id FROM students WHERE student_id = %s", (data.get("student_id"),))
+                if cursor.fetchone():
+                    return error("Student ID already exists"), 409
 
                 hashed = hash_password(data.get("password"))
 
