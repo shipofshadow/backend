@@ -165,7 +165,7 @@ def extract_applicant_flags(applicant: Dict) -> Dict[str, Any]:
     return {
         "is_ofw": flags["is_ofw"],
         "is_farmers_child": flags["is_farmers_child"],
-        "is_ip": applicant.get("ip_affiliation") not in ("None", "N/A", None, "", True),
+        "is_ip": applicant.get("ip_affiliation") not in ("None", "N/A", None, ""),
         "is_pwd": applicant.get("is_pwd", False),
         "course_id": applicant.get("course_id", 0),
         "department_id": applicant.get("department_id", 0),
