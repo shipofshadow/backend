@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from services.meta.fuzzy_logic import FuzzyEligibilitySystem
+from services.notification_service import create_notification
 from services.recommend_service import RecommendationService
 
 from storage import get_connection
@@ -198,8 +199,9 @@ def evaluate(application_id):
         cursor = connection.cursor()
 
         # Check if application exists
-        cursor.execute("SELECT id FROM applications WHERE id = %s AND deleted_at IS NULL", (application_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id, student_id as user_id FROM applications WHERE id = %s AND deleted_at IS NULL", (application_id,))
+        res = cursor.fetchone()
+        if not res:
             return jsonify({"error": "Application not found"}), 404
 
         # Perform fuzzy logic evaluation
@@ -221,6 +223,23 @@ def evaluate(application_id):
                        """, (application_id, gwa, total_units, income, score, classification))
 
         connection.commit()
+
+        create_notification(
+            user_id=res['user_id'],
+            message_type='system_announcement',
+            title='📊 Application Evaluated',
+            message=f'Your application #{application_id} has been evaluated. Score: {score} -({classification}).',
+            metadata={
+                'application_id': application_id,
+                'gwa': gwa,
+                'income': income,
+                'total_units': total_units,
+                'score': score,
+                'classification': classification
+            },
+            priority='normal',
+            action_url=f'/applicant/status'
+        )
 
         logger.info(f"Application {application_id} evaluated successfully with score {score}")
 

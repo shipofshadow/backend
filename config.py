@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import os
 
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "docx"}
-UPLOAD_FOLDER = '/var/www/cdn.ischolar/uploads'
+UPLOAD_FOLDER = 'uploads'
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 class Config:
@@ -16,6 +16,18 @@ class Config:
     REDIS_HOST = os.getenv("REDIS_HOST")
     REDIS_PORT = int(os.getenv("REDIS_PORT"))
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+
+    FERNET_KEY = os.getenv("FERNET_KEY")
+
+    MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.getenv("MAIL_PORT", 587))
+    MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "True") == "True"
+    MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "False") == "True"
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME")
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
+
+
 
 
 SCHOLARSHIP_CONFIG = {
