@@ -99,6 +99,8 @@ def submit_application():
     data["academicYearId"] = active["academic_year_id"]
     data["semesterId"] = active["semester_id"]
 
+    print(active)
+
     student_info = fetch_student_info(user_id)
     if not student_info:
         return jsonify({"error": "Student information not found"}), 404

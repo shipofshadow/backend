@@ -392,11 +392,11 @@ def recommend(application_id):
         # Get evaluation results
         cursor.execute("""
                        SELECT score, classification, gwa, income, total_units
-                       FROM evaluations
+                       FROM evaluations 
                        WHERE application_id = %s
                          AND deleted_at IS NULL
                        """, (application_id,))
-
+        print(application_id)
         evaluation_result = cursor.fetchone()
         if not evaluation_result:
             return jsonify({"error": "Application must be evaluated first"}), 400
