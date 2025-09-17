@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, request, Blueprint, send_from_directory
 from flask_jwt_extended import jwt_required
 
+from services.notification_service import create_notification
 from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
+from utils.applications import get_application
 from utils.decorator import admin_required
 
 applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
@@ -317,3 +319,44 @@ def update_application_status(application_id):
     db.close()
 
     return jsonify({"message": f"Application {status}"}), 200
+
+
+@applicants_bp.route('/<int:application_id>/deny', methods=['POST'])
+@jwt_required()
+def deny_applicant(application_id):
+    app = get_application(application_id)
+    if not app:
+        return jsonify({"error": "Applicant not found"}), 404
+
+    user_id = app["user_id"]
+
+    db = get_connection()
+    cursor = db.cursor()
+    try:
+        # Update the application status to 'denied'
+        cursor.execute(
+            "UPDATE applications SET status = 'denied' WHERE id = %s",
+            (application_id,)
+        )
+        db.commit()
+
+
+
+        create_notification(
+            user_id=user_id,
+            message_type='system_announcement',
+            title='❌ Application Denied',
+            message=f'Your application #{application_id} has been denied.',
+            metadata={
+                'application_id': application_id,
+            },
+            priority='high',
+            action_url='/applicant/status'
+        )
+
+        return jsonify({"message": "Applicant denied and notification sent"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        db.close()

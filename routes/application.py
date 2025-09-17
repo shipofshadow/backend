@@ -2,10 +2,12 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
 
+from services.notification_service import notify_admin, notify_admin_new_application
 from storage import get_connection
 from models.application import Application
 from services.application_service import save_application, insert_grades
 from services.admin.manage_periods import get_active_period
+from utils.students import fetch_student_info
 from utils.utils import allowed_file, save_file
 
 UPLOAD_FOLDER = "uploads"
@@ -97,6 +99,10 @@ def submit_application():
     data["academicYearId"] = active["academic_year_id"]
     data["semesterId"] = active["semester_id"]
 
+    student_info = fetch_student_info(user_id)
+    if not student_info:
+        return jsonify({"error": "Student information not found"}), 404
+
     try:
         application = Application(data)
 
@@ -116,6 +122,13 @@ def submit_application():
                 VALUES (%s, %s, %s)
             """, (application_id, 'grades', grades_filename))
         db.commit()
+
+        notify_admin_new_application(
+            application_id=application_id,
+            student_info=student_info,
+            application_data=data,
+        )
+
         return jsonify(data), 200
 
     except Exception as e:

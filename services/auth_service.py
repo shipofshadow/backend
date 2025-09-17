@@ -1,9 +1,12 @@
-import json
+import datetime
 import uuid
 
 import pymysql
 from flask_jwt_extended import create_access_token, create_refresh_token
+from flask_mail import Message
 
+from config import Config
+from extensions import mail
 from storage import get_connection, redis_client
 from models.user import User
 from utils.hashing import hash_password, verify_password
@@ -16,56 +19,64 @@ class AuthService:
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+                cursor.execute("SELECT * FROM users WHERE username = %s AND deleted_at IS NULL", (username,))
                 data = cursor.fetchone()
                 if not data:
-                    return error("The username you entered does not exist."), 401
+                    return error("Invalid username or password."), 401
+
                 user = User(data)
-
                 if not verify_password(password, user.password):
-                    return error("The password that you entered is incorrect."), 401
+                    return error("Invalid username or password."), 401
 
-                token = create_access_token(identity=str(user.id), additional_claims={"role": user.role})
-                refresh_token = create_refresh_token(identity=str(user.id), additional_claims={"role": user.role})
+                # JWT tokens
+                claims = {"role": user.role, "username": user.username}
+                token = create_access_token(identity=str(user.id), additional_claims=claims)
+                refresh_token = create_refresh_token(identity=str(user.id), additional_claims=claims)
+
+                # Optionally store refresh token in Redis (TTL = 7 days)
+                redis_client.setex(f"refresh_token:{user.id}", 60 * 60 * 24 * 7, refresh_token)
 
                 response_data = {
                     "token": token,
                     "refresh_token": refresh_token,
                     "user": user.to_dict(),
+                    "is_admin": user.role == "admin",
                 }
-
-                if user.role != "student":
-                    response_data["is_admin"] = True
 
                 return success("Login successful", response_data), 200
 
-
         except Exception as e:
             return error(f"Login failed: {str(e)}"), 500
-
+        finally:
+            connection.close()
 
     @staticmethod
     def register(data):
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
-                # Check if username exists
-                cursor.execute("SELECT id FROM users WHERE username = %s", (data.get("username"),))
+                # Username check
+                cursor.execute("SELECT id FROM users WHERE username = %s AND deleted_at IS NULL", (data["username"],))
                 if cursor.fetchone():
                     return error("Username already exists"), 409
 
-                # Check if student exists
-                cursor.execute("SELECT id FROM students WHERE student_id = %s", (data.get("student_id"),))
+                # Email check
+                cursor.execute("SELECT id FROM students WHERE email = %s AND deleted_at IS NULL", (data["email"],))
+                if cursor.fetchone():
+                    return error("Email already exists"), 409
+
+                # Student ID check
+                cursor.execute("SELECT id FROM students WHERE student_id = %s AND deleted_at IS NULL", (data["student_id"],))
                 if cursor.fetchone():
                     return error("Student ID already exists"), 409
 
-                hashed = hash_password(data.get("password"))
+                hashed = hash_password(data["password"])
 
                 # Insert into users
                 cursor.execute("""
                     INSERT INTO users (username, password, role, is_active, created_at, updated_at)
-                    VALUES (%s, %s, 'Student', 1, NOW(), NOW())
-                """, (data.get("username"), hashed))
+                    VALUES (%s, %s, 'student', 1, NOW(), NOW())
+                """, (data["username"], hashed))
                 user_id = connection.insert_id()
 
                 # Insert into students
@@ -76,7 +87,7 @@ class AuthService:
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     user_id,
-                    data.get("student_id"),
+                    data["student_id"],
                     data.get("last_name"),
                     data.get("first_name"),
                     data.get("middle_name"),
@@ -86,44 +97,116 @@ class AuthService:
                     data.get("contact_number"),
                     data.get("email")
                 ))
-                
 
             connection.commit()
             return success("Registration successful"), 201
 
-        except pymysql.err.IntegrityError as e:
+        except pymysql.err.IntegrityError:
             connection.rollback()
-            return error(f"Integrity error: {e.args[1]}"), 400
-
+            return error("Integrity error: Duplicate entry detected."), 400
         except Exception as e:
             connection.rollback()
             return error(f"Registration failed: {str(e)}"), 500
-
         finally:
             connection.close()
 
     @staticmethod
-    def update_profile(user_id, new_data):
-        new_username = new_data.get("username")
-
+    def request_password_reset(email, ip_address=None, user_agent=None):
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
+                # Find user by email
                 cursor.execute("""
-                    UPDATE users 
-                    SET username = %s, updated_at = NOW() 
-                    WHERE id = %s
-                """, (new_username, user_id))
-                connection.commit()
-            return success("Account updated"), 200
+                    SELECT u.id 
+                    FROM users u
+                    JOIN students s ON s.user_id = u.id
+                    WHERE s.email = %s AND u.deleted_at IS NULL
+                """, (email,))
+                row = cursor.fetchone()
+                if not row:
+                    return error("No account found with this email"), 404
 
-        except pymysql.MySQLError as e:
-            connection.rollback()
-            return error(f"Database error: {e.args[1]}"), 500
+                user_id = row["id"]
+                token = str(uuid.uuid4())
+                expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=12)
+
+                # Insert reset token
+                cursor.execute("""
+                    INSERT INTO password_reset_tokens (user_id, token, expires_at, ip_address, user_agent)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (user_id, token, expires_at, ip_address, user_agent))
+                connection.commit()
+
+                reset_link = f"{Config.APP_URL}/reset-password?token={token}"
+
+                # Send email
+                msg = Message(
+                    subject="iScholar Password Reset",
+                    sender=Config.MAIL_USERNAME,
+                    recipients=[email]
+                )
+                msg.body = f"""
+                Hello,
+
+                You requested to reset your password. Please click the link below to reset:
+
+                {reset_link}
+
+                This link will expire in 12 hours. If you didn’t request a reset, you can safely ignore this email.
+
+                -- iScholar Team
+                """
+                mail.send(msg)
+
+                return success("Password reset link sent"), 200
 
         except Exception as e:
             connection.rollback()
-            return error(f"Update failed: {str(e)}"), 500
+            return error(f"Failed to request password reset: {str(e)}"), 500
+        finally:
+            connection.close()
 
+    @staticmethod
+    def confirm_password_reset(token, new_password):
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                # Validate token
+                cursor.execute("""
+                               SELECT *
+                               FROM password_reset_tokens
+                               WHERE token = %s
+                                 AND used_at IS NULL
+                                 AND expires_at > NOW()
+                               """, (token,))
+                reset_entry = cursor.fetchone()
+                if not reset_entry:
+                    return error("Invalid or expired token"), 400
+
+                user_id = reset_entry["user_id"]
+                hashed = hash_password(new_password)
+
+                # Update user password
+                cursor.execute("""
+                               UPDATE users
+                               SET password   = %s,
+                                   updated_at = NOW()
+                               WHERE id = %s
+                               """, (hashed, user_id))
+
+                # Mark token as used
+                cursor.execute("""
+                               UPDATE password_reset_tokens
+                               SET used_at    = NOW(),
+                                   updated_at = NOW()
+                               WHERE id = %s
+                               """, (reset_entry["id"],))
+
+            connection.commit()
+            return success("Password has been reset successfully"), 200
+
+        except Exception as e:
+            connection.rollback()
+            return error(f"Failed to reset password: {str(e)}"), 500
         finally:
             connection.close()

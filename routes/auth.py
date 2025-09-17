@@ -92,3 +92,29 @@ def refresh_token():
     identity = get_jwt_identity()
     new_token = create_access_token(identity=identity)
     return jsonify({"token": new_token}), 200
+
+@auth_bp.route("/request-password-reset", methods=["POST"])
+def request_password_reset():
+    data = request.get_json()
+    email = data.get("email")
+
+    ip_address = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
+    user_agent = request.headers.get("User-Agent", "")
+
+    return AuthService.request_password_reset(email, ip_address, user_agent)
+
+@auth_bp.route("/confirm-password-reset", methods=["POST"])
+def confirm_password_reset():
+    try:
+        data = request.get_json()
+        token = data.get("token")
+        new_password = data.get("new_password")
+
+        if not token or not new_password:
+            return jsonify({"status": "error", "message": "Token and new password are required."}), 400
+
+        result, status = AuthService.confirm_password_reset(token, new_password)
+        return jsonify(result), status
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500

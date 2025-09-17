@@ -11,6 +11,7 @@ from services.notification_service import create_notification
 from services.recommend_service import RecommendationService
 
 from storage import get_connection
+from utils.applications import get_application
 from utils.utils import smart_detect_flags, safe_json_parse, extract_applicant_flags
 
 # Configure logging
@@ -580,7 +581,11 @@ def get_selections(application_id):
 def select_scholarship(application_id):
     """Select final scholarship for an applicant"""
     try:
+        app = get_application(application_id)
+        if not app:
+            return jsonify({"error": "Applicant not found"}), 404
         data = request.get_json()
+        user_id = app["user_id"]
         scholarship_id = data.get('scholarship_id')
         awarded_amount = data.get('awarded_amount')
         selection_reason = data.get('selection_reason', '')
@@ -665,6 +670,21 @@ def select_scholarship(application_id):
             "selected_date": datetime.now().isoformat(),
             "message": "Scholarship awarded successfully"
         }
+
+        create_notification(
+            user_id=user_id,
+            message_type='system_announcement',
+            title='🎉 Scholarship Awarded',
+            message=f'Congratulations! Your application #{application_id} has been awarded the scholarship "{scholarship["name"]}" with an amount of PHP {final_amount:.2f}.',
+            metadata={
+                'application_id': application_id,
+                'scholarship_id': scholarship_id,
+                'awarded_amount': final_amount,
+                'selection_reason': selection_reason
+            },
+            priority='high',
+            action_url=f'/applicant/status'
+        )
 
         return jsonify(response_data), 201
 

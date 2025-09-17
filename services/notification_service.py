@@ -537,3 +537,57 @@ def notify_scholarship_recommendation(application_id: int, scholarship_id: int, 
     except Exception as e:
         logger.error(f"Error sending scholarship recommendation notification: {str(e)}")
         raise
+
+
+def notify_admin_new_application(
+        application_id: int,
+        student_info: Dict,
+        application_data: Dict,
+) -> Dict:
+    """
+    Notify administrators about new application submission with detailed information.
+    """
+    try:
+        # Prepare notification metadata
+        metadata = {
+            "application_id": application_id,
+            "student_id": student_info.get("student_id"),
+            "student_name": f"{student_info.get('firstname', '')} {student_info.get('lastname', '')}".strip(),
+            "email": student_info.get("email"),
+            "contact_number": student_info.get("contact_number"),
+            "submission_timestamp": datetime.now().isoformat(),
+            "semester": application_data.get("semester_name", "Unknown"),
+            "academic_year": application_data.get("academic_year", "Unknown"),
+            "priority": "normal",
+            "category": "new_application"
+        }
+
+        # Craft notification message
+        message = f"""
+        New scholarship application submitted by {metadata['student_name']} 
+        """
+
+        # Send notification to all active admins
+        admin_ids = notify_admin(
+            message=message.strip(),
+            title=f"New Application #{application_id}",
+            metadata=metadata
+        )
+
+        logger.info(f"Notification sent to {len(admin_ids)} administrators for application {application_id}")
+
+        return {
+            "success": True,
+            "admin_count": len(admin_ids),
+            "admin_ids": admin_ids,
+            "message": "Notification sent successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to send admin notification: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "admin_count": 0
+        }
+
