@@ -9,6 +9,7 @@ from typing import Dict, Any
 from werkzeug.utils import secure_filename
 from PIL import Image
 from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG
+from .avatar_generator import create_initials_avatar
 
 
 def allowed_file(filename):
@@ -17,6 +18,14 @@ def allowed_file(filename):
         and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
     )
 
+def generate_avatar(name):
+    img = create_initials_avatar(name)
+    unique_id = uuid.uuid4().hex
+    filename = f"avatar_{unique_id}.png"
+    path = os.path.join(UPLOAD_FOLDER, filename)
+    img.save(path)
+    return path
+
 def save_file(file, user_id, file_type):
     # Get extension safely
     _, ext = os.path.splitext(secure_filename(file.filename))
@@ -24,6 +33,8 @@ def save_file(file, user_id, file_type):
     unique_id = uuid.uuid4().hex
     filename = f"{user_id}_{file_type}_{unique_id}{ext}"
     path = os.path.join(UPLOAD_FOLDER, filename)
+
+    file.save(path)
 
     # IMAGE COMPRESSION
     if ext in [".jpg", ".jpeg", ".png"]:
@@ -36,24 +47,6 @@ def save_file(file, user_id, file_type):
         except Exception as e:
             # fallback if Pillow fails
             file.save(path)
-
-    # PDF COMPRESSION (Ghostscript required: apt install ghostscript)
-    # elif ext == ".pdf":
-    #     tmp_path = os.path.join("/tmp", filename)
-    #     file.save(tmp_path)
-    #     try:
-    #         subprocess.run([
-    #             "gs",
-    #             "-sDEVICE=pdfwrite",
-    #             "-dCompatibilityLevel=1.4",
-    #             "-dPDFSETTINGS=/ebook",
-    #             "-dNOPAUSE", "-dQUIET", "-dBATCH",
-    #             f"-sOutputFile={path}", tmp_path
-    #         ], check=True)
-    #         os.remove(tmp_path)
-    #     except Exception as e:
-    #         # fallback if Ghostscript fails
-    #         os.rename(tmp_path, path)
 
     # DOCX or others → save
     else:

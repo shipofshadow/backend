@@ -54,7 +54,7 @@ socketio.init_app(app, cors_allowed_origins=[
     "http://localhost:5173",
     "https://ischolar.xyz",
     "https://www.ischolar.xyz"
-])
+],)
 
 # CORS
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": [

@@ -1,7 +1,8 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 import storage
+from config import UPLOAD_FOLDER
 from routes.scholarship_summary import get_scholarship_summary
 from storage import get_connection
 from services.application_service import base_applicant_query
@@ -39,55 +40,6 @@ def get_applications():
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()
 def get_user_data():
-    """
-    Get profile information of the logged-in user
-    ---
-    tags:
-      - Profile
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: User profile info
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: integer
-                  example: 123
-                username:
-                  type: string
-                  example: "john_doe"
-                role:
-                  type: string
-                  example: "student"
-                profile:
-                  type: object
-                  description: Detailed student profile (if role is student)
-                  properties:
-                    first_name:
-                      type: string
-                      example: "John"
-                    last_name:
-                      type: string
-                      example: "Doe"
-                    education_info:
-                      type: object
-                      example: {"school": "ABC University", "year_level": 3}
-                    family_background:
-                      type: object
-                      example: {"father_name": "Mr. Doe", "mother_name": "Mrs. Doe"}
-                    addresses:
-                      type: object
-                      example: {"street": "123 Main St", "city": "Metro City"}
-      401:
-        description: Unauthorized - JWT token missing or invalid
-      404:
-        description: User not found
-    """
-
     user_id = get_jwt_identity()
 
     connection = get_connection()
@@ -110,9 +62,15 @@ def get_user_data():
             WHERE students.user_id = %s
         """, (user_id,))
         student_profile = cursor.fetchone()
+        if student_profile:
+            student_profile.pop('password')
         user['profile'] = student_profile
 
     cursor.close()
     connection.close()
 
     return jsonify(user), 200
+
+@profile_bp.route('/avatar/<path:filename>', methods=['GET'])
+def get_avatar(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)

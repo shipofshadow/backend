@@ -11,6 +11,7 @@ from storage import get_connection, redis_client
 from models.user import User
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
+from utils.utils import generate_avatar
 
 
 class AuthService:
@@ -72,6 +73,8 @@ class AuthService:
 
                 hashed = hash_password(data["password"])
 
+                name = f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
+                avatar = generate_avatar(name)
                 # Insert into users
                 cursor.execute("""
                     INSERT INTO users (username, password, role, is_active, created_at, updated_at)
@@ -83,8 +86,8 @@ class AuthService:
                 cursor.execute("""
                     INSERT INTO students (
                         user_id, student_id, last_name, first_name, middle_name,
-                        name_extension, gender, birth_date, contact_number, email
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        name_extension, gender, birth_date, contact_number, email, avatar
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     user_id,
                     data["student_id"],
@@ -95,7 +98,8 @@ class AuthService:
                     data.get("gender"),
                     data.get("birth_date"),
                     data.get("contact_number"),
-                    data.get("email")
+                    data.get("email"),
+                    avatar
                 ))
 
             connection.commit()
