@@ -2,57 +2,39 @@ from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 import storage
+from routes.scholarship_summary import get_scholarship_summary
 from storage import get_connection
 from services.application_service import base_applicant_query
 
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 
+@profile_bp.route("/scholarship/summary", methods=["GET"])
+@jwt_required()
+def scholarship_summary():
+    student_id = get_jwt_identity()
+    return get_scholarship_summary(student_id, active_only=True)
+
+
 @profile_bp.route("/applications", methods=["GET"])
 @jwt_required()
 def get_applications():
-    """
-       Get all applications for the logged-in student
-       ---
-       tags:
-         - Profile
-       security:
-         - Bearer: []
-       responses:
-         200:
-           description: List of applications
-           content:
-             application/json:
-               schema:
-                 type: array
-                 items:
-                   type: object
-                   properties:
-                     id:
-                       type: integer
-                       example: 1
-                     student_id:
-                       type: integer
-                       example: 123
-                     status:
-                       type: string
-                       example: "Pending"
-                     created_at:
-                       type: string
-                       format: date-time
-                     updated_at:
-                       type: string
-                       format: date-time
-         401:
-           description: Unauthorized - JWT token missing or invalid
-       """
     user_id = get_jwt_identity()
 
     connection = get_connection()
     cursor = connection.cursor()
-    cursor.execute(base_applicant_query() + 'WHERE applications.student_id = %s', [user_id])
+
+    # SQL: join with semesters and filter active semester
+    query = f"""
+        {base_applicant_query()}
+        WHERE applications.student_id = %s
+          AND semesters.is_active = 1
+    """
+
+    cursor.execute(query, [user_id])
     applications = cursor.fetchall()
     cursor.close()
     return jsonify(applications), 200
+
 
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()

@@ -1,17 +1,36 @@
 # blueprints/scholarship_summary.py
 from flask import Blueprint, jsonify, request
 from datetime import datetime
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from storage import get_connection
 
 scholarship_summary_bp = Blueprint('scholarship_summary', __name__, url_prefix='/api/scholarship-summary')
 
+
+def get_current_user_role():
+    """Get the role of the current JWT user"""
+    claims = get_jwt()
+    return claims.get('role')
+
+
+
+@scholarship_summary_bp.route('/', defaults={'student_id': None}, methods=['GET'])
 @scholarship_summary_bp.route('/<int:student_id>', methods=['GET'])
-def get_scholarship_summary(student_id):
+@jwt_required()
+def get_scholarship_summary(student_id, active_only=False):
     """
     Get comprehensive scholarship summary for a specific student
     Includes all applications, evaluations, recommendations, and awards
     """
+    current_user_id = get_jwt_identity()
+
+
+    # If no student_id provided, use current user's ID
+    if student_id is None:
+        student_id = current_user_id
+
+
+    print(student_id)
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -42,10 +61,16 @@ def get_scholarship_summary(student_id):
                                       LEFT JOIN academic_years ay ON s.academic_year_id = ay.id
                              WHERE a.student_id = %s \
                                AND a.deleted_at IS NULL
-                             ORDER BY a.submitted_at DESC \
                              """
+
+        if active_only:
+            applications_query += " AND s.is_active = 1"
+        applications_query += " ORDER BY a.submitted_at DESC"
+
         cursor.execute(applications_query, (student_id,))
         applications = cursor.fetchall()
+
+        print(applications)
 
         # Process each application
         applications_data = []
