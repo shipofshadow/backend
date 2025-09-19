@@ -13,7 +13,7 @@ def name_to_color(name):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def create_initials_avatar(name, size=128, font_color="#fff",):
+def create_initials_avatar(name, size=1024, font_color="#fff",):
     initials = "".join([part[0] for part in name.split()][:2]).upper()
     bg_color = name_to_color(name)
 
