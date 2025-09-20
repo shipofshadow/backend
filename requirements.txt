@@ -12,6 +12,8 @@ cffi
 charset-normalizer
 click
 cryptography
+dnspython
+eventlet
 flasgger
 Flask
 Flask-Caching
@@ -19,8 +21,11 @@ flask-cors
 Flask-JWT-Extended
 Flask-Mail
 Flask-SocketIO
+gevent
+gevent-websocket
 google-auth
 google-auth-oauthlib
+greenlet
 gunicorn
 h11
 idna
@@ -52,8 +57,12 @@ requests
 requests-oauthlib
 rpds-py
 rsa
+setuptools
 simple-websocket
 six
 urllib3
+uvicorn
 Werkzeug
 wsproto
+zope.event
+zope.interface

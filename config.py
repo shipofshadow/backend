@@ -32,6 +32,10 @@ class Config:
     GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
+    FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_APP_ID")
+    FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_APP_SECRET")
+
+
 SCHOLARSHIP_CONFIG = {
     "min_gwa": None,
     "max_gwa": None,
