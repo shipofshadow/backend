@@ -21,6 +21,7 @@ from routes.evaluation import evaluations_bp
 from routes.fuzzy_logic import fuzzy_bp
 from routes.meta import meta_bp
 from routes.notification import notification_bp
+from routes.oauth import oauth_bp
 from routes.prequalify import prequalify_bp
 from routes.profile import profile_bp
 from routes.scholarship_summary import scholarship_summary_bp
@@ -53,14 +54,16 @@ cache.init_app(app)
 socketio.init_app(app, cors_allowed_origins=[
     "http://localhost:5173",
     "https://ischolar.xyz",
-    "https://www.ischolar.xyz"
+    "https://www.ischolar.xyz",
+    "http://ischolar.test"
 ],)
 
 # CORS
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": [
     "http://localhost:5173",
     "https://ischolar.xyz",
-    "https://www.ischolar.xyz"
+    "https://www.ischolar.xyz",
+    "http://ischolar.test"
 ]}})
 
 mail = Mail(app)
@@ -82,6 +85,7 @@ app.register_blueprint(scholarship_summary_bp)
 app.register_blueprint(prequalify_bp)
 app.register_blueprint(notification_bp, strict_slashes=False)
 app.register_blueprint(application_draft_bp, strict_slashes=False)
+app.register_blueprint(oauth_bp)
 # Swagger
 swagger = Swagger(app)
 

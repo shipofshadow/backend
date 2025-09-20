@@ -29,10 +29,8 @@ class Config:
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
 
     APP_URL = os.getenv("APP_URL")
-
-
-
-
+    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 
 SCHOLARSHIP_CONFIG = {
     "min_gwa": None,

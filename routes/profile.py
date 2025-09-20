@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, send_from_directory
+from flask import Blueprint, jsonify, send_from_directory, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 import storage
@@ -46,7 +46,7 @@ def get_user_data():
     cursor = connection.cursor()
 
     # Get user base info
-    cursor.execute("SELECT id, username, role FROM users WHERE id = %s", (user_id,))
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
 
     if not user:
@@ -62,9 +62,20 @@ def get_user_data():
             WHERE students.user_id = %s
         """, (user_id,))
         student_profile = cursor.fetchone()
-        if student_profile:
-            student_profile.pop('password')
+        if student_profile and "password" in student_profile:
+            student_profile.pop("password")
         user['profile'] = student_profile
+
+    elif user['role'] == 'admin':
+        cursor.execute("""
+                   SELECT * FROM users 
+                             INNER JOIN user_details ON user_details.user_id = users.id 
+            WHERE users.id = %s
+        """, (user_id,))
+        admin_profile = cursor.fetchone()
+        if admin_profile and "password" in admin_profile:
+            admin_profile.pop("password")
+        user['profile'] = admin_profile
 
     cursor.close()
     connection.close()
@@ -74,3 +85,55 @@ def get_user_data():
 @profile_bp.route('/avatar/<path:filename>', methods=['GET'])
 def get_avatar(filename):
     return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+@profile_bp.route("/complete", methods=["POST"])
+@jwt_required()
+def complete_profile():
+    user_id = str(get_jwt_identity())
+    data = request.get_json()
+
+    student_id = data.get("student_id")
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+    middle_name = data.get("middle_name")
+    name_extension = data.get("name_extension")
+    gender = data.get("gender")
+    birth_date = data.get("birth_date")
+    citizenship = data.get("citizenship")
+    civil_status = data.get("civil_status")
+    contact_number = data.get("contact_number")
+    email = data.get("email")
+    avatar = data.get("avatar")
+
+    if not student_id or not first_name or not last_name or not email:
+        return jsonify({"error": "student_id, first_name, last_name, and email are required"}), 400
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    # Check if this user already has a student profile
+    cursor.execute("SELECT * FROM students WHERE user_id = %s", (user_id,))
+    existing = cursor.fetchone()
+    if existing:
+        return jsonify({"error": "Profile already exists"}), 400
+
+    # Insert new student profile
+    cursor.execute("""
+        INSERT INTO students (
+            user_id, student_id, last_name, first_name, middle_name, name_extension,
+            gender, birth_date, citizenship, civil_status, contact_number,
+            email, avatar, created_at, updated_at
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+    """, (
+        user_id, student_id, last_name, first_name, middle_name, name_extension,
+        gender, birth_date, citizenship, civil_status, contact_number,
+        email, avatar
+    ))
+    connection.commit()
+
+    cursor.close()
+    connection.close()
+
+    return jsonify({"message": "Profile completed successfully"}), 201
