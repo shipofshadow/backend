@@ -91,7 +91,7 @@ def registered_students():
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT COUNT(*) AS total FROM students
+        SELECT COUNT(*) AS total FROM students WHERE deleted_at IS NULL 
         """
     )
     result = cursor.fetchone()

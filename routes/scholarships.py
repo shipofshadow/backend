@@ -2,6 +2,7 @@ import json
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
+
 from storage import get_connection
 
 scholarships_bp = Blueprint('scholarships', __name__, url_prefix='/api/scholarships')
@@ -10,52 +11,6 @@ scholarships_bp = Blueprint('scholarships', __name__, url_prefix='/api/scholarsh
 @scholarships_bp.route('/', methods=['GET'])
 # @jwt_required()
 def get_scholarships():
-    """
-    Get all scholarships
-    ---
-    tags:
-      - Scholarships
-    security:
-      - Bearer: []
-    responses:
-      200:
-        description: List of scholarships
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    example: 1
-                  name:
-                    type: string
-                    example: "Academic Excellence"
-                  description:
-                    type: string
-                    example: "Awarded to top-performing students"
-                  grant_amount:
-                    type: number
-                    example: 10000
-                  is_active:
-                    type: boolean
-                    example: true
-                  created_at:
-                    type: string
-                    format: date-time
-                  updated_at:
-                    type: string
-                    format: date-time
-                  rules:
-                    type: object
-                    nullable: true
-                    description: Scholarship eligibility rules
-      500:
-        description: Failed to fetch scholarships
-    """
-
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -127,148 +82,6 @@ def get_scholarships():
 @scholarships_bp.route('/', methods=['POST'])
 @jwt_required()
 def create_scholarship():
-    # GET all scholarships
-    @scholarships_bp.route('/', methods=['GET'])
-    # @jwt_required()
-    def get_scholarships():
-        """
-        Get all scholarships
-        ---
-        tags:
-          - Scholarships
-        security:
-          - Bearer: []
-        responses:
-          200:
-            description: List of scholarships
-            content:
-              application/json:
-                schema:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      id:
-                        type: integer
-                        example: 1
-                      name:
-                        type: string
-                        example: "Academic Excellence"
-                      description:
-                        type: string
-                        example: "Awarded to top-performing students"
-                      grant_amount:
-                        type: number
-                        example: 10000
-                      is_active:
-                        type: boolean
-                        example: true
-                      created_at:
-                        type: string
-                        format: date-time
-                      updated_at:
-                        type: string
-                        format: date-time
-                      rules:
-                        type: object
-                        nullable: true
-                        description: Scholarship eligibility rules
-          500:
-            description: Failed to fetch scholarships
-        """
-        ...
-
-    # POST create scholarship
-    @scholarships_bp.route('/', methods=['POST'])
-    @jwt_required()
-    def create_scholarship():
-        """
-        Create a new scholarship
-        ---
-        tags:
-          - Scholarships
-        security:
-          - Bearer: []
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - name
-                properties:
-                  name:
-                    type: string
-                    example: "Academic Excellence"
-                  description:
-                    type: string
-                    example: "Awarded to top-performing students"
-                  grant_amount:
-                    type: number
-                    example: 10000
-                  is_active:
-                    type: boolean
-                    example: true
-                  rules:
-                    type: object
-                    properties:
-                      min_gwa:
-                        type: number
-                        example: 1.75
-                      max_gwa:
-                        type: number
-                        example: 3.0
-                      min_income:
-                        type: number
-                        example: 0
-                      max_income:
-                        type: number
-                        example: 25000
-                      priorities:
-                        type: object
-                        properties:
-                          must_be_ofw:
-                            type: boolean
-                            example: false
-                          prefer_farmers_child:
-                            type: boolean
-                            example: true
-                          require_ip:
-                            type: boolean
-                            example: false
-                          prefer_pwd:
-                            type: boolean
-                            example: false
-                      preferred_course_ids:
-                        type: array
-                        items:
-                          type: integer
-                      preferred_department_ids:
-                        type: array
-                        items:
-                          type: integer
-                      preferred_campus_ids:
-                        type: array
-                        items:
-                          type: integer
-                      preferred_year_levels:
-                        type: array
-                        items:
-                          type: integer
-                      min_units_enrolled:
-                        type: integer
-                      max_units_enrolled:
-                        type: integer
-        responses:
-          201:
-            description: Scholarship created successfully
-          400:
-            description: Missing required fields
-          500:
-            description: Failed to create scholarship
-        """
-
     data = request.json
 
     # Validate required fields
@@ -337,57 +150,6 @@ def create_scholarship():
 @scholarships_bp.route('/<int:scholarship_id>', methods=['PUT'])
 @jwt_required()
 def update_scholarship(scholarship_id):
-    """
-    Update an existing scholarship
-    ---
-    tags:
-      - Scholarships
-    security:
-      - Bearer: []
-    parameters:
-      - name: scholarship_id
-        in: path
-        required: true
-        schema:
-          type: integer
-          example: 1
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            required:
-              - name
-            properties:
-              name:
-                type: string
-                example: "Academic Excellence"
-              description:
-                type: string
-                example: "Awarded to top-performing students"
-              grant_amount:
-                type: number
-                example: 10000
-              is_active:
-                type: boolean
-                example: true
-              rules:
-                type: object
-                properties:  # same as create_scholarship
-                  min_gwa: {type: number, example: 1.75}
-
-    responses:
-      200:
-        description: Scholarship updated successfully
-      400:
-        description: Missing required fields
-      404:
-        description: Scholarship not found
-      500:
-        description: Failed to update scholarship
-    """
-
     data = request.json
 
     # Validate required fields
