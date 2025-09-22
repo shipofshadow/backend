@@ -27,6 +27,7 @@ from routes.profile import profile_bp
 from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
 from utils.applications import email_exists
+from utils.response import error
 
 app = Flask(__name__)
 cache = Cache()
@@ -90,9 +91,9 @@ app.register_blueprint(oauth_bp)
 swagger = Swagger(app)
 
 # Routes
-@app.route("/")
-def index():
-    return {"status": "API ready"}, 200
+@app.errorhandler(404)
+def not_found(er):
+    return jsonify(error(message="Not found")), 404
 
 @app.route('/api/ping', methods=['GET'])
 def ping():
@@ -112,9 +113,9 @@ def handle_connect(auth):
         decoded = decode_token(auth["token"])
         user_id = decoded["sub"]
         join_room(str(user_id))
-        print(f"✅ User {user_id} connected to WebSocket")
+        print(f"User {user_id} connected to WebSocket")
     except Exception as e:
-        print("❌ WebSocket auth failed:", str(e))
+        print("WebSocket auth failed:", str(e))
         traceback.print_exc()
         return disconnect()
 
