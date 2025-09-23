@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, request, Blueprint, send_from_directory
 from flask_jwt_extended import jwt_required
 
-from services.notification_service import create_notification
+from services.notification_service import create_notification, notify_student_application_status
 from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
@@ -340,19 +340,9 @@ def deny_applicant(application_id):
         )
         db.commit()
 
+        # notify_student_application_status(application_id, status="denied", remarks=app["remarks"])
+        notify_student_application_status(application_id, status="denied", remarks=f'Your application #{application_id} has been denied.')
 
-
-        create_notification(
-            user_id=user_id,
-            message_type='system_announcement',
-            title='❌ Application Denied',
-            message=f'Your application #{application_id} has been denied.',
-            metadata={
-                'application_id': application_id,
-            },
-            priority='high',
-            action_url='/applicant/status'
-        )
 
         return jsonify({"message": "Applicant denied and notification sent"}), 200
     except Exception as e:

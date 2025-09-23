@@ -1,5 +1,8 @@
 from datetime import datetime
 
+from utils.applications import generate_reference_number
+
+
 def insert_grades(db, application_id, grades_list):
     cursor = db.cursor()
 
@@ -18,6 +21,7 @@ def save_application(db, user_id, application):
     cursor = db.cursor()
 
     semester_id = int(application.semester_id or 0)
+    reference_number = generate_reference_number()
 
     # Check if student has an application for this semester
     cursor.execute("""
@@ -34,9 +38,9 @@ def save_application(db, user_id, application):
     else:
         # Insert new application for this semester
         cursor.execute("""
-            INSERT INTO applications (student_id, semester_id, submitted_at, status)
-            VALUES (%s, %s, %s, 'pending')
-        """, (user_id, semester_id, datetime.now()))
+            INSERT INTO applications (reference_number, student_id, semester_id, submitted_at, status)
+            VALUES (%s, %s, %s, %s, 'pending')
+        """, (reference_number, user_id, semester_id, datetime.now()))
         application_id = cursor.lastrowid
 
         # Insert education_info for new semester

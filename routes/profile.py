@@ -145,198 +145,173 @@ def complete_profile():
 @profile_bp.route('/scholarship-status/<int:application_id>', methods=['GET'])
 @jwt_required()
 def get_scholarship_status(application_id):
-    """
-    Get scholarship status for a specific application
-    Returns different response structure based on current status
-    """
     try:
         current_user_id = get_jwt_identity()
         conn = get_connection()
         cursor = conn.cursor()
 
-        # First, verify the application belongs to the current user
+        # Verify ownership
         cursor.execute("""
-                       SELECT a.id
-                       FROM applications a
-                       WHERE a.id = %s
-                         AND a.student_id = %s
-                         AND a.deleted_at IS NULL
-                       """, (application_id, current_user_id))
-
+            SELECT id FROM applications
+            WHERE id = %s AND student_id = %s AND deleted_at IS NULL
+        """, (application_id, current_user_id))
         if not cursor.fetchone():
             return jsonify({"error": "Application not found or access denied"}), 404
 
-        # Get comprehensive application data
-        query = """
-                SELECT a.id                                                                      as application_id, \
-                       a.status                                                                  as app_status, \
-                       a.submitted_at, \
-                       a.remarks, \
-                       s.id                                                                      as scholarship_id, \
-                       s.name                                                                    as scholarship_name, \
-                       s.description                                                             as scholarship_description, \
-                       s.grant_amount, \
-                       ss.status                                                                 as selection_status, \
-                       ss.selection_reason, \
-                       ss.awarded_amount, \
-                       ss.created_at                                                             as selected_date, \
-                       e.gwa, \
-                       e.classification, \
-                       e.score, \
-                       e.total_units, \
-                       st.student_id, \
-                       CONCAT(st.first_name, ' ', IFNULL(st.middle_name, ''), ' ', st.last_name) as student_name, \
-                       st.email                                                                  as student_email, \
-                       c.name                                                                    as course_name, \
-                       ei.year_level, \
-                       camp.name                                                                 as campus_name, \
-                       sem.name                                                                  as semester_name, \
-                       fb.father_income + fb.mother_income                                       as total_income, \
-                       sr.config                                                                 as scholarship_rules
-                FROM applications a
-                         LEFT JOIN scholarship_selections ss ON a.id = ss.application_id
-                         LEFT JOIN scholarships s ON ss.scholarship_id = s.id
-                         LEFT JOIN evaluations e ON a.id = e.application_id
-                         LEFT JOIN students st ON a.student_id = st.user_id
-                         LEFT JOIN education_info ei ON st.id = ei.student_id
-                         LEFT JOIN courses c ON ei.course_id = c.course_id
-                         LEFT JOIN campuses camp ON ei.campus_id = camp.campus_id
-                         LEFT JOIN semesters sem ON a.semester_id = sem.id
-                         LEFT JOIN family_background fb ON st.id = fb.student_id
-                         LEFT JOIN scholarship_rules sr ON s.id = sr.scholarship_id
-                WHERE a.id = %s \
-                  AND a.deleted_at IS NULL \
-                """
-
-        cursor.execute(query, (application_id,))
+        # Load core application data
+        cursor.execute("""
+            SELECT 
+                applications.id AS application_id,
+                applications.status,
+                applications.submitted_at,
+                applications.remarks,
+                applications.reference_number,
+                scholarship_selections.status AS selection_status,
+                scholarship_selections.selection_reason,
+                scholarship_selections.awarded_amount,
+                scholarship_selections.created_at AS selection_date,
+                scholarships.id AS scholarship_id,
+                scholarships.name AS scholarship_name,
+                scholarships.description AS scholarship_description,
+                scholarships.grant_amount,
+                evaluations.gwa,
+                evaluations.score,
+                evaluations.total_units,
+                evaluations.classification,
+                evaluations.income,
+                students.student_id,
+                CONCAT(students.first_name,' ',students.last_name) AS student_name,
+                students.email AS student_email,
+                students.contact_number,
+                courses.name AS course_name,
+                education_info.year_level,
+                campuses.name AS campus_name,
+                scholarship_rules.config AS scholarship_rules
+            FROM applications
+            LEFT JOIN scholarship_selections ON applications.id = scholarship_selections.application_id
+            LEFT JOIN scholarships ON scholarship_selections.scholarship_id = scholarships.id
+            LEFT JOIN evaluations ON applications.id = evaluations.application_id
+            LEFT JOIN students ON applications.student_id = students.user_id
+            LEFT JOIN education_info 
+                ON education_info.student_id = students.user_id
+                AND education_info.semester_id = applications.semester_id
+            LEFT JOIN campuses ON education_info.campus_id = campuses.campus_id
+            LEFT JOIN departments ON education_info.department_id = departments.department_id
+            LEFT JOIN courses ON education_info.course_id = courses.course_id
+            LEFT JOIN scholarship_rules ON scholarships.id = scholarship_rules.scholarship_id
+            WHERE applications.id = %s 
+              AND applications.deleted_at IS NULL
+        """, (application_id,))
         result = cursor.fetchone()
-
         if not result:
             return jsonify({"error": "Application data not found"}), 404
 
-        # Get application files
+        # Files
         cursor.execute("""
-                       SELECT file_type, file_path, created_at
-                       FROM application_files
-                       WHERE application_id = %s
-                         AND deleted_at IS NULL
-                       """, (application_id,))
+            SELECT file_type, file_path, created_at
+            FROM application_files
+            WHERE application_id = %s AND deleted_at IS NULL
+        """, (application_id,))
         files = cursor.fetchall()
 
-        # Build common data structure
-        common_data = {
-            "selected_by_admin": {
-                "name": "Dr. Maria Santos",  # This would typically come from users table
-                "title": "Scholarship Committee Chair",
-                "email": "m.santos@university.edu",
-                "phone": "+63 912 345 6789"
-            },
+        requirements = [
+            {
+                "file_name": f["file_path"].split("/")[-1],
+                "type": f["file_type"],
+                "uploaded_at": f["created_at"].isoformat(),
+                "status": "verified"
+            } for f in files
+        ]
+
+        common = {
             "application": {
-                "id": result['application_id'],
-                "submitted_at": result['submitted_at'].isoformat() if result['submitted_at'] else None,
+                "id": result["application_id"],
+                "reference_number": result["reference_number"],
+                "status": result['status'],
+                "submitted_at": result["submitted_at"].isoformat() if result["submitted_at"] else None,
                 "student": {
-                    "name": result['student_name'],
-                    "student_id": result['student_id'],
-                    "course": result['course_name'],
-                    "year_level": result['year_level'],
-                    "campus": result['campus_name'],
-                    "email": result['student_email']
+                    "name": result["student_name"],
+                    "student_id": result["student_id"],
+                    "course": result["course_name"],
+                    "year_level": result["year_level"],
+                    "campus": result["campus_name"],
+                    "email": result["student_email"],
+                    "phone": result["contact_number"]
                 }
             },
             "evaluation": {
-                "gwa": float(result['gwa']) if result['gwa'] else None,
-                "classification": result['classification'],
-                "score": float(result['score']) if result['score'] else None,
-                "total_units": result['total_units']
+                "gwa": result["gwa"],
+                "score": result["score"],
+                "total_units": result["total_units"],
+                "classification": result["classification"],
+                "income": result["income"]
             },
-            "requirements": [
-                {
-                    "type": file['file_type'],
-                    "file_name": file['file_path'].split('/')[-1] if file['file_path'] else None,
-                    "uploaded_at": file['created_at'].isoformat() if file['created_at'] else None,
-                    "status": "verified"  # You might want to add a status field to application_files table
-                }
-                for file in files
-            ],
-            "scholarship_rules": json.loads(result['scholarship_rules']) if result['scholarship_rules'] else {}
+            "requirements": requirements,
+            "scholarship_rules": json.loads(result["scholarship_rules"]) if result["scholarship_rules"] else {}
         }
 
-        # Determine status and build appropriate response
-        app_status = result['app_status']
-        selection_status = result['selection_status']
+        # -------------------------
+        # Build response by status
+        # -------------------------
+        app_status = result["status"]
+        sel_status = result["selection_status"]
 
-        # If no scholarship selection exists, it's pending
-        if not result['scholarship_id']:
-            response_data = {
+        if app_status == "pending":
+            return jsonify({
                 "status": "pending",
-                "message": "Your application is currently under review by the scholarship committee. Please wait for further updates.",
-                "common": common_data
-            }
+                "common": common
+            })
 
-        # If scholarship is selected but not yet awarded
-        elif selection_status == 'selected':
-            response_data = {
-                "status": "selected",
-                "scholarship": {
-                    "id": result['scholarship_id'],
-                    "name": result['scholarship_name'],
-                    "description": result['scholarship_description'],
-                    "grant_amount": float(result['grant_amount']),
-                    "selection_reason": result['selection_reason'],
-                    "selected_date": result['selected_date'].isoformat() if result['selected_date'] else None,
-                    "submitted_date": result['submitted_at'].isoformat() if result['submitted_at'] else None
-                },
-                "common": common_data
-            }
+        elif app_status == "evaluated" and not sel_status:
+            return jsonify({
+                "status": "evaluated",
+                "message": "Your application has been evaluated by the committee. Awaiting scholarship selection.",
+                "common": common
+            })
 
-        # If scholarship is awarded
-        elif selection_status == 'awarded':
-            response_data = {
-                "status": "awarded",
-                "scholarship": {
-                    "id": result['scholarship_id'],
-                    "name": result['scholarship_name'],
-                    "description": result['scholarship_description'],
-                    "grant_amount": float(result['grant_amount']),
-                    "awarded_amount": float(result['awarded_amount']) if result['awarded_amount'] else float(
-                        result['grant_amount']),
-                    "selection_reason": result['selection_reason'],
-                    "selected_date": result['selected_date'].isoformat() if result['selected_date'] else None,
-                    "awarded_date": result['selected_date'].isoformat() if result['selected_date'] else None,
-                    # You might want a separate awarded_date field
-                    "submitted_date": result['submitted_at'].isoformat() if result['submitted_at'] else None
-                },
-                "common": common_data
-            }
+        elif sel_status in ("awarded", "selected"):
+            return jsonify({
+                "status": "approved",
+                "name": result["scholarship_name"],
+                "description": result["scholarship_description"],
+                "grant_amount": float(result["grant_amount"]),
+                "submitted_at": result["submitted_at"].isoformat(),
+                "approved_at": result["selection_date"].isoformat(),
+                "common": common,
+                "selection_reason": result["selection_reason"],
+                "requirements": requirements,
+                "admin_contact": {
+                    "name": "Ms. Maria Santos",
+                    "title": "Scholarship Coordinator",
+                    "email": "maria.santos@university.edu.ph",
+                    "phone": "+63 2 8123 4567"
+                }
+            })
 
-        # If application is denied or cancelled
-        elif app_status == 'denied' or selection_status == 'cancelled':
-            response_data = {
+        elif app_status == "denied" or sel_status == "cancelled":
+            rules = json.loads(result["scholarship_rules"]) if result["scholarship_rules"] else {}
+            return jsonify({
                 "status": "denied",
-                "scholarship": {
-                    "id": result['scholarship_id'] if result['scholarship_id'] else 1,
-                    "name": result['scholarship_name'] if result['scholarship_name'] else "General Scholarship",
-                    "description": result['scholarship_description'] if result[
-                        'scholarship_description'] else "Scholarship application",
-                    "grant_amount": float(result['grant_amount']) if result['grant_amount'] else 0.0,
-                    "denial_reason": result['remarks'] or result[
-                        'selection_reason'] or "Your application did not meet the minimum requirements.",
-                    "reviewed_date": result['selected_date'].isoformat() if result['selected_date'] else None,
-                    "submitted_date": result['submitted_at'].isoformat() if result['submitted_at'] else None
-                },
-                "common": common_data
-            }
+                "name": result["scholarship_name"],
+                "description": result["scholarship_description"],
+                "grant_amount": float(result["grant_amount"]) if result["grant_amount"] else 0,
+                "submitted_at": result["submitted_at"].isoformat(),
+                "denied_at": result["selection_date"].isoformat() if result["selection_date"] else None,
+                "application": common["application"],
+                "evaluation": common["evaluation"],
+                "denial_reason": result["remarks"] or "Application did not meet requirements.",
+                "scholarship_requirements": {
+                    "min_gwa": rules.get("min_gwa"),
+                    "min_units": rules.get("min_units_enrolled"),
+                    "max_income": rules.get("max_income")
+                }
+            })
 
         else:
-            # Default to pending if status is unclear
-            response_data = {
+            return jsonify({
                 "status": "pending",
-                "message": "Your application is currently under review by the scholarship committee. Please wait for further updates.",
-                "common": common_data
-            }
-
-        return jsonify(response_data), 200
+                "common": common
+            })
 
     except Exception as e:
-        return jsonify(error("Internal server error")), 500
-
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500

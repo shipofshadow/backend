@@ -223,6 +223,14 @@ def evaluate(application_id):
                                                updated_at     = NOW()
                        """, (application_id, gwa, total_units, income, score, classification))
 
+        cursor.execute("""
+            UPDATE applications
+            SET status = 'evaluated',
+                updated_at = NOW()
+            WHERE id = %s
+              AND deleted_at IS NULL
+        """, (application_id,))
+
         connection.commit()
 
         create_notification(
@@ -239,7 +247,7 @@ def evaluate(application_id):
                 'classification': classification
             },
             priority='normal',
-            action_url=f'/applicant/status'
+            action_url=f'/applicant/application/{application_id}',
         )
 
         logger.info(f"Application {application_id} evaluated successfully with score {score}")

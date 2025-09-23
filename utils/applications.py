@@ -1,6 +1,8 @@
 # utils/applications.py
 from typing import Optional
 from storage import get_connection
+import secrets
+import string
 
 def get_application(application_id: int) -> Optional[dict]:
     """
@@ -34,3 +36,7 @@ def email_exists(email: str) -> bool:
         db.close()
 
 
+def generate_reference_number():
+    alphabet = string.ascii_uppercase + string.digits
+    ref = ''.join(secrets.choice(alphabet) for _ in range(12))
+    return f"REF-{ref}"

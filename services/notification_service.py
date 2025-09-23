@@ -430,9 +430,9 @@ def notify_student_application_status(application_id: int, status: str, remarks:
 
         # Get application and student details
         cursor.execute("""
-                       SELECT a.student_id, s.first_name, s.last_name, sem.name as semester_name
+                       SELECT a.student_id, st.first_name, st.last_name, sem.name as semester_name
                        FROM applications a
-                                JOIN students st ON a.student_id = st.id
+                                JOIN students st ON a.student_id = st.user_id
                                 JOIN users s ON st.user_id = s.id
                                 JOIN semesters sem ON a.semester_id = sem.id
                        WHERE a.id = %s
@@ -445,6 +445,7 @@ def notify_student_application_status(application_id: int, status: str, remarks:
         if not app_data:
             raise ValueError(f"Application {application_id} not found")
 
+        print(app_data)
         # Prepare notification content
         status_messages = {
             'approved': {
@@ -481,6 +482,7 @@ def notify_student_application_status(application_id: int, status: str, remarks:
                 'remarks': remarks,
                 'semester': app_data["semester_name"]
             },
+            action_url=f'/applicant/application/{application_id}',
             priority='high' if status in ['approved', 'denied'] else 'normal'
         )
 

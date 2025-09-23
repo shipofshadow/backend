@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
 
-from services.notification_service import notify_admin, notify_admin_new_application
+from services.notification_service import notify_admin, notify_admin_new_application, notify_student_application_status
 from storage import get_connection
 from models.application import Application
 from services.application_service import save_application, insert_grades
@@ -130,6 +130,8 @@ def submit_application():
             student_info=student_info,
             application_data=data,
         )
+
+        notify_student_application_status(application_id, "submitted")
 
         return jsonify(data), 200
 
