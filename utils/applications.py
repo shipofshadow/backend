@@ -34,9 +34,3 @@ def email_exists(email: str) -> bool:
     finally:
         cursor.close()
         db.close()
-
-
-def generate_reference_number():
-    alphabet = string.ascii_uppercase + string.digits
-    ref = ''.join(secrets.choice(alphabet) for _ in range(12))
-    return f"REF-{ref}"
