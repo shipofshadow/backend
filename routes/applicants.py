@@ -328,21 +328,29 @@ def deny_applicant(application_id):
     if not app:
         return jsonify({"error": "Applicant not found"}), 404
 
-    user_id = app["user_id"]
+    # Get the reason from request body
+    data = request.get_json()
+    reason = data.get('reason', '').strip() if data else ''
+
+    if not reason:
+        return jsonify({"error": "Denial reason is required"}), 400
 
     db = get_connection()
     cursor = db.cursor()
     try:
-        # Update the application status to 'denied'
+        # Update the application status to 'denied' and add remarks
         cursor.execute(
-            "UPDATE applications SET status = 'denied' WHERE id = %s",
-            (application_id,)
+            "UPDATE applications SET status = 'denied', remarks = %s WHERE id = %s",
+            (reason, application_id)
         )
         db.commit()
 
-        # notify_student_application_status(application_id, status="denied", remarks=app["remarks"])
-        notify_student_application_status(application_id, status="denied", remarks=f'Your application #{application_id} has been denied.')
-
+        # Notify student with the denial reason
+        notify_student_application_status(
+            application_id,
+            status="denied",
+            remarks=f'Your application #{application_id} has been denied. Reason: {reason}'
+        )
 
         return jsonify({"message": "Applicant denied and notification sent"}), 200
     except Exception as e:

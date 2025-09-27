@@ -29,13 +29,6 @@ def parse_form_data(form):
 
     return result
 
-
-@application_bp.route("/", methods=["GET"])
-@jwt_required()
-def fetch_applications():
-    user_id = get_jwt_identity()
-
-
 @application_bp.route("/apply", methods=["POST"])
 @jwt_required()
 def submit_application():

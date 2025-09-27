@@ -289,22 +289,11 @@ def get_scholarship_status(application_id):
             })
 
         elif app_status == "denied" or sel_status == "cancelled":
-            rules = json.loads(result["scholarship_rules"]) if result["scholarship_rules"] else {}
             return jsonify({
+                "common": common,
                 "status": "denied",
-                "name": result["scholarship_name"],
-                "description": result["scholarship_description"],
-                "grant_amount": float(result["grant_amount"]) if result["grant_amount"] else 0,
-                "submitted_at": result["submitted_at"].isoformat(),
                 "denied_at": result["selection_date"].isoformat() if result["selection_date"] else None,
-                "application": common["application"],
-                "evaluation": common["evaluation"],
                 "denial_reason": result["remarks"] or "Application did not meet requirements.",
-                "scholarship_requirements": {
-                    "min_gwa": rules.get("min_gwa"),
-                    "min_units": rules.get("min_units_enrolled"),
-                    "max_income": rules.get("max_income")
-                }
             })
 
         else:
