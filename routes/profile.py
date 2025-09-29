@@ -3,7 +3,8 @@ import json
 from flask import Blueprint, jsonify, send_from_directory, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-import storage
+from services.notification_service import create_notification
+from utils.hashing import hash_password, verify_password
 from config import UPLOAD_FOLDER
 from routes.scholarship_summary import get_scholarship_summary
 from storage import get_connection
@@ -304,3 +305,72 @@ def get_scholarship_status(application_id):
 
     except Exception as e:
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
+
+@profile_bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    user_id = get_jwt_identity()
+    data = request.get_json(silent=True) or {}
+
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    confirm_password = data.get('confirm_password')
+
+    # Validate required fields
+    if not old_password or not new_password or not confirm_password:
+        return jsonify({"error": "All password fields are required"}), 400
+
+    if new_password != confirm_password:
+        return jsonify({"error": "New password and confirmation do not match"}), 400
+
+    # Enforce password policy (example: min length, must include digits/letters)
+    if len(new_password) < 8:
+        return jsonify({"error": "New password must be at least 8 characters long"}), 400
+    if new_password.isdigit() or new_password.isalpha():
+        return jsonify({"error": "New password must include both letters and numbers"}), 400
+
+    conn = None
+    cursor = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT password, is_active FROM users WHERE id = %s", (user_id,))
+        result = cursor.fetchone()
+        if not result:
+            return jsonify({"error": "User not found"}), 404
+        if not result["is_active"]:
+            return jsonify({"error": "Account is inactive"}), 403
+
+        current_hashed_password = result["password"]
+        if not verify_password(old_password, current_hashed_password):
+            return jsonify({"error": "Old password is incorrect"}), 400
+
+        new_hashed_password = hash_password(new_password)
+
+        cursor.execute("""
+            UPDATE users 
+            SET password = %s, updated_at = NOW() 
+            WHERE id = %s
+        """, (new_hashed_password, user_id))
+        conn.commit()
+        
+        create_notification(
+            user_id, 
+            'password_changed', 
+            'Password changed.', 
+            'Your account password was changed successfully.')
+
+
+        return jsonify({"message": "Password changed successfully"}), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({f"error: {e}" }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

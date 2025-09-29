@@ -56,20 +56,30 @@ class AuthService:
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
-                # Username check
-                cursor.execute("SELECT id FROM users WHERE username = %s AND deleted_at IS NULL", (data["username"],))
+                
+                # Student ID check
+                cursor.execute(
+                    "SELECT id FROM students WHERE student_id = %s AND deleted_at IS NULL", 
+                    (data["student_id"],)
+                )
                 if cursor.fetchone():
-                    return error("Username already exists"), 409
+                    return error("The student ID is already in use."), 409
+                
+                # Username check
+                cursor.execute(
+                    "SELECT id FROM users WHERE username = %s AND deleted_at IS NULL", 
+                    (data["username"],)
+                )
+                if cursor.fetchone():
+                    return error("The username is already taken."), 409
 
                 # Email check
-                cursor.execute("SELECT id FROM students WHERE email = %s AND deleted_at IS NULL", (data["email"],))
+                cursor.execute(
+                    "SELECT id FROM students WHERE email = %s AND deleted_at IS NULL", 
+                    (data["email"],)
+                )
                 if cursor.fetchone():
-                    return error("Email already exists"), 409
-
-                # Student ID check
-                cursor.execute("SELECT id FROM students WHERE student_id = %s AND deleted_at IS NULL", (data["student_id"],))
-                if cursor.fetchone():
-                    return error("Student ID already exists"), 409
+                    return error("The email is already registered."), 409
 
                 hashed = hash_password(data["password"])
 
