@@ -12,8 +12,7 @@ from models.user import User
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
 from utils.utils import generate_avatar
-
-
+from services.notification_service import create_notification
 class AuthService:
     @staticmethod
     def login(username, password):

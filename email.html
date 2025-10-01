@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iScholar Email Templates</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .template-selector {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .template-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .template-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .template-btn:hover {
+            background: #0056b3;
+        }
+        .template-btn.active {
+            background: #28a745;
+        }
+        .email-template {
+            display: none;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .email-template.active {
+            display: block;
+        }
+        .template-preview {
+            border: 1px solid #ddd;
+            min-height: 500px;
+        }
+    </style>
+</head>
+<body>
+    <div class="template-selector">
+        <h2>📧 iScholar Email Templates</h2>
+        <p>Select an email template to preview:</p>
+        <div class="template-buttons">
+            <button class="template-btn active" onclick="showTemplate('activate')">🔓 Activate Account</button>
+            <button class="template-btn" onclick="showTemplate('reset')">🔑 Reset Password</button>
+            <button class="template-btn" onclick="showTemplate('recommendation')">🎓 Scholarship Recommendation</button>
+            <button class="template-btn" onclick="showTemplate('status')">📋 Application Status</button>
+        </div>
+    </div>
+
+    <!-- Activate Account Template -->
+    <div id="activate-template" class="email-template active">
+        <div class="template-preview">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <tr>
+                    <td style="padding: 40px 20px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            <!-- Header -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                        🎓 Welcome to iScholar
+                                    </h1>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">
+                                        Intelligent Scholarship Management System
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Content -->
+                            <tr>
+                                <td style="padding: 40px 30px;">
+                                    <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 24px; font-weight: 600;">
+                                        Activate Your Account
+                                    </h2>
+                                    <p style="margin: 0 0 20px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Hello <strong>{{student_name}}</strong>,
+                                    </p>
+                                    <p style="margin: 0 0 30px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Thank you for registering with iScholar! To complete your registration and start applying for scholarships, please activate your account by clicking the button below.
+                                    </p>
+                                    
+                                    <!-- CTA Button -->
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 30px 0;">
+                                        <tr>
+                                            <td style="text-align: center;">
+                                                <a href="{{activation_link}}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #28a745, #20c997); color: #ffffff; text-decoration: none; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3); transition: all 0.2s;">
+                                                    ✅ Activate Account
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #007bff;">
+                                        <p style="margin: 0 0 10px 0; color: #495057; font-size: 14px; font-weight: 600;">
+                                            📋 Your Account Details:
+                                        </p>
+                                        <p style="margin: 5px 0; color: #6c757d; font-size: 14px;">
+                                            <strong>Student ID:</strong> {{student_id}}<br>
+                                            <strong>Email:</strong> {{email}}<br>
+                                            <strong>Registration Date:</strong> {{registration_date}}
+                                        </p>
+                                    </div>
+
+                                    <p style="margin: 30px 0 0 0; color: #666666; font-size: 14px; line-height: 1.6;">
+                                        If the button doesn't work, copy and paste this link into your browser:<br>
+                                        <a href="{{activation_link}}" style="color: #007bff; word-break: break-all;">{{activation_link}}</a>
+                                    </p>
+                                    
+                                    <p style="margin: 20px 0 0 0; color: #999999; font-size: 13px;">
+                                        This activation link will expire in 24 hours. If you didn't create this account, please ignore this email.
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-radius: 0 0 12px 12px; border-top: 1px solid #e9ecef;">
+                                    <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                        Need help? Contact our support team
+                                    </p>
+                                    <p style="margin: 0; color: #007bff; font-size: 14px;">
+                                        📧 support@ischolar.edu.ph | 📞 (02) 123-4567
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Reset Password Template -->
+    <div id="reset-template" class="email-template">
+        <div class="template-preview">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <tr>
+                    <td style="padding: 40px 20px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            <!-- Header -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%); padding: 40px 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                        🔐 Password Reset
+                                    </h1>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">
+                                        iScholar Security
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Content -->
+                            <tr>
+                                <td style="padding: 40px 30px;">
+                                    <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 24px; font-weight: 600;">
+                                        Reset Your Password
+                                    </h2>
+                                    <p style="margin: 0 0 20px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Hello <strong>{{user_name}}</strong>,
+                                    </p>
+                                    <p style="margin: 0 0 30px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        We received a request to reset your password for your iScholar account. Click the button below to create a new password.
+                                    </p>
+                                    
+                                    <!-- CTA Button -->
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 30px 0;">
+                                        <tr>
+                                            <td style="text-align: center;">
+                                                <a href="{{reset_link}}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #dc3545, #c82333); color: #ffffff; text-decoration: none; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3); transition: all 0.2s;">
+                                                    🔑 Reset Password
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                                        <p style="margin: 0 0 10px 0; color: #856404; font-size: 14px; font-weight: 600;">
+                                            ⚠️ Important Security Information:
+                                        </p>
+                                        <p style="margin: 5px 0; color: #856404; font-size: 14px; line-height: 1.5;">
+                                            • This reset link expires in 1 hour<br>
+                                            • If you didn't request this reset, please ignore this email<br>
+                                            • Never share your password with anyone
+                                        </p>
+                                    </div>
+
+                                    <p style="margin: 30px 0 0 0; color: #666666; font-size: 14px; line-height: 1.6;">
+                                        If the button doesn't work, copy and paste this link into your browser:<br>
+                                        <a href="{{reset_link}}" style="color: #dc3545; word-break: break-all;">{{reset_link}}</a>
+                                    </p>
+                                    
+                                    <p style="margin: 20px 0 0 0; color: #999999; font-size: 13px;">
+                                        Request initiated from: <strong>{{ip_address}}</strong> at {{request_time}}
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-radius: 0 0 12px 12px; border-top: 1px solid #e9ecef;">
+                                    <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                        Having trouble? Our support team is here to help
+                                    </p>
+                                    <p style="margin: 0; color: #007bff; font-size: 14px;">
+                                        📧 security@ischolar.edu.ph | 📞 (02) 123-4567
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Scholarship Recommendation Template -->
+    <div id="recommendation-template" class="email-template">
+        <div class="template-preview">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <tr>
+                    <td style="padding: 40px 20px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            <!-- Header -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 40px 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                        🎉 Great News!
+                                    </h1>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">
+                                        Scholarship Recommendations Available
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Content -->
+                            <tr>
+                                <td style="padding: 40px 30px;">
+                                    <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 24px; font-weight: 600;">
+                                        You're Eligible for Scholarships!
+                                    </h2>
+                                    <p style="margin: 0 0 20px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Dear <strong>{{student_name}}</strong>,
+                                    </p>
+                                    <p style="margin: 0 0 30px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Congratulations! Based on your application and academic performance, our AI system has identified <strong>{{recommendation_count}}</strong> scholarship opportunities that match your profile.
+                                    </p>
+                                    
+                                    <!-- Scholarship Cards -->
+                                    <div style="background-color: #f8f9fa; padding: 25px; border-radius: 12px; margin: 30px 0; border: 1px solid #e9ecef;">
+                                        <h3 style="margin: 0 0 20px 0; color: #495057; font-size: 18px; font-weight: 600;">
+                                            📚 Recommended Scholarships:
+                                        </h3>
+                                        
+                                        <!-- Scholarship 1 -->
+                                        <div style="background-color: #ffffff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #28a745; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                            <h4 style="margin: 0 0 10px 0; color: #28a745; font-size: 16px; font-weight: 600;">
+                                                {{scholarship_1_name}}
+                                            </h4>
+                                            <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                                <strong>Amount:</strong> ₱{{scholarship_1_amount}}<br>
+                                                <strong>Match Score:</strong> {{scholarship_1_score}}%<br>
+                                                <strong>Status:</strong> <span style="color: #28a745; font-weight: 600;">{{scholarship_1_status}}</span>
+                                            </p>
+                                            <p style="margin: 0; color: #495057; font-size: 13px; line-height: 1.4;">
+                                                {{scholarship_1_description}}
+                                            </p>
+                                        </div>
+
+                                        <!-- Scholarship 2 -->
+                                        <div style="background-color: #ffffff; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #ffc107; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                            <h4 style="margin: 0 0 10px 0; color: #ffc107; font-size: 16px; font-weight: 600;">
+                                                {{scholarship_2_name}}
+                                            </h4>
+                                            <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                                <strong>Amount:</strong> ₱{{scholarship_2_amount}}<br>
+                                                <strong>Match Score:</strong> {{scholarship_2_score}}%<br>
+                                                <strong>Status:</strong> <span style="color: #ffc107; font-weight: 600;">{{scholarship_2_status}}</span>
+                                            </p>
+                                            <p style="margin: 0; color: #495057; font-size: 13px; line-height: 1.4;">
+                                                {{scholarship_2_description}}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <!-- CTA Button -->
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 30px 0;">
+                                        <tr>
+                                            <td style="text-align: center;">
+                                                <a href="{{dashboard_link}}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #007bff, #0056b3); color: #ffffff; text-decoration: none; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3); transition: all 0.2s;">
+                                                    📋 View All Recommendations
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #28a745;">
+                                        <p style="margin: 0 0 10px 0; color: #155724; font-size: 14px; font-weight: 600;">
+                                            💡 Next Steps:
+                                        </p>
+                                        <p style="margin: 5px 0; color: #155724; font-size: 14px; line-height: 1.5;">
+                                            1. Review each scholarship's requirements carefully<br>
+                                            2. Prepare additional documents if needed<br>
+                                            3. Submit your applications before deadlines<br>
+                                            4. Track your application status in your dashboard
+                                        </p>
+                                    </div>
+                                    
+                                    <p style="margin: 20px 0 0 0; color: #999999; font-size: 13px;">
+                                        Recommendations generated on {{generation_date}} using AI analysis of your GWA ({{student_gwa}}), family income, and other factors.
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-radius: 0 0 12px 12px; border-top: 1px solid #e9ecef;">
+                                    <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                        Questions about your recommendations?
+                                    </p>
+                                    <p style="margin: 0; color: #007bff; font-size: 14px;">
+                                        📧 scholarships@ischolar.edu.ph | 📞 (02) 123-4567
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Application Status Template -->
+    <div id="status-template" class="email-template">
+        <div class="template-preview">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0; padding: 0; background-color: #f8f9fa;">
+                <tr>
+                    <td style="padding: 40px 20px;">
+                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            <!-- Header -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #6f42c1 0%, #6610f2 100%); padding: 40px 30px; text-align: center; border-radius: 12px 12px 0 0;">
+                                    <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                                        📋 Application Update
+                                    </h1>
+                                    <p style="margin: 10px 0 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">
+                                        Status Change Notification
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Content -->
+                            <tr>
+                                <td style="padding: 40px 30px;">
+                                    <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 24px; font-weight: 600;">
+                                        Application Status Update
+                                    </h2>
+                                    <p style="margin: 0 0 20px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        Hello <strong>{{student_name}}</strong>,
+                                    </p>
+                                    <p style="margin: 0 0 30px 0; color: #666666; font-size: 16px; line-height: 1.6;">
+                                        We have an update regarding your scholarship application. Your application status has been changed.
+                                    </p>
+                                    
+                                    <!-- Status Card -->
+                                    <div style="background-color: #f8f9fa; padding: 30px; border-radius: 12px; margin: 30px 0; border: 1px solid #e9ecef; text-align: center;">
+                                        <div style="background-color: {{status_color}}; color: white; padding: 10px 20px; border-radius: 50px; display: inline-block; margin-bottom: 20px; font-weight: 600; font-size: 16px;">
+                                            {{status_icon}} {{application_status}}
+                                        </div>
+                                        
+                                        <h3 style="margin: 0 0 15px 0; color: #495057; font-size: 20px; font-weight: 600;">
+                                            Application Details
+                                        </h3>
+                                        
+                                        <table role="presentation" cellspacing="0" cellpadding="8" border="0" style="width: 100%; margin: 0 auto;">
+                                            <tr>
+                                                <td style="text-align: left; color: #6c757d; font-size: 14px; font-weight: 600; padding: 8px 0; border-bottom: 1px solid #e9ecef;">Application ID:</td>
+                                                <td style="text-align: right; color: #495057; font-size: 14px; padding: 8px 0; border-bottom: 1px solid #e9ecef;">{{application_id}}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="text-align: left; color: #6c757d; font-size: 14px; font-weight: 600; padding: 8px 0; border-bottom: 1px solid #e9ecef;">Scholarship:</td>
+                                                <td style="text-align: right; color: #495057; font-size: 14px; padding: 8px 0; border-bottom: 1px solid #e9ecef;">{{scholarship_name}}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="text-align: left; color: #6c757d; font-size: 14px; font-weight: 600; padding: 8px 0; border-bottom: 1px solid #e9ecef;">Submitted:</td>
+                                                <td style="text-align: right; color: #495057; font-size: 14px; padding: 8px 0; border-bottom: 1px solid #e9ecef;">{{submission_date}}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="text-align: left; color: #6c757d; font-size: 14px; font-weight: 600; padding: 8px 0; border-bottom: 1px solid #e9ecef;">Updated:</td>
+                                                <td style="text-align: right; color: #495057; font-size: 14px; padding: 8px 0; border-bottom: 1px solid #e9ecef;">{{update_date}}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="text-align: left; color: #6c757d; font-size: 14px; font-weight: 600; padding: 8px 0;">Reviewed by:</td>
+                                                <td style="text-align: right; color: #495057; font-size: 14px; padding: 8px 0;">{{reviewer_name}}</td>
+                                            </tr>
+                                        </table>
+                                    </div>
+
+                                    <!-- Status-specific content -->
+                                    <div style="background-color: {{message_bg_color}}; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid {{message_border_color}};">
+                                        <h4 style="margin: 0 0 10px 0; color: {{message_text_color}}; font-size: 16px; font-weight: 600;">
+                                            {{status_title}}
+                                        </h4>
+                                        <p style="margin: 0; color: {{message_text_color}}; font-size: 14px; line-height: 1.5;">
+                                            {{status_message}}
+                                        </p>
+                                        
+                                        {{#if admin_remarks}}
+                                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,0,0,0.1);">
+                                            <p style="margin: 0 0 5px 0; color: {{message_text_color}}; font-size: 13px; font-weight: 600;">
+                                                Admin Remarks:
+                                            </p>
+                                            <p style="margin: 0; color: {{message_text_color}}; font-size: 13px; font-style: italic; line-height: 1.4;">
+                                                "{{admin_remarks}}"
+                                            </p>
+                                        </div>
+                                        {{/if}}
+                                    </div>
+
+                                    <!-- CTA Button -->
+                                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 30px 0;">
+                                        <tr>
+                                            <td style="text-align: center;">
+                                                <a href="{{application_link}}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #6f42c1, #6610f2); color: #ffffff; text-decoration: none; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(111, 66, 193, 0.3); transition: all 0.2s;">
+                                                    📱 View Application Details
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <div style="background-color: #e2e3e5; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #6c757d;">
+                                        <p style="margin: 0 0 10px 0; color: #495057; font-size: 14px; font-weight: 600;">
+                                            📞 Need Assistance?
+                                        </p>
+                                        <p style="margin: 5px 0; color: #6c757d; font-size: 14px; line-height: 1.5;">
+                                            • Check your application dashboard for detailed information<br>
+                                            • Contact the scholarship office if you have questions<br>
+                                            • Keep all application documents for your records
+                                        </p>
+                                    </div>
+                                    
+                                    <p style="margin: 20px 0 0 0; color: #999999; font-size: 13px;">
+                                        This is an automated notification. Please do not reply to this email.
+                                    </p>
+                                </td>
+                            </tr>
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-radius: 0 0 12px 12px; border-top: 1px solid #e9ecef;">
+                                    <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px;">
+                                        Questions about your application status?
+                                    </p>
+                                    <p style="margin: 0; color: #007bff; font-size: 14px;">
+                                        📧 applications@ischolar.edu.ph | 📞 (02) 123-4567
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function showTemplate(templateId) {
+            // Hide all templates
+            const templates = document.querySelectorAll('.email-template');
+            templates.forEach(template => {
+                template.classList.remove('active');
+            });
+            
+            // Remove active class from all buttons
+            const buttons = document.querySelectorAll('.template-btn');
+            buttons.forEach(button => {
+                button.classList.remove('active');
+            });
+            
+            // Show selected template
+            document.getElementById(templateId + '-template').classList.add('active');
+            
+            // Add active class to clicked button
+            event.target.classList.add('active');
+        }
+
+        // Add hover effects to buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            const buttons = document.querySelectorAll('a[style*="background: linear-gradient"]');
+            
+            buttons.forEach(button => {
+                button.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-2px)';
+                    this.style.boxShadow = this.style.boxShadow.replace('0 4px 12px', '0 6px 20px');
+                });
+                
+                button.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                    this.style.boxShadow = this.style.boxShadow.replace('0 6px 20px', '0 4px 12px');
+                });
+            });
+        });
+
+        // Template variable mapping examples for developers
+        const templateVariables = {
+            activate: {
+                student_name: "Juan Dela Cruz",
+                student_id: "2024-00123",
+                email: "juan.delacruz@student.edu.ph",
+                registration_date: "September 20, 2025",
+                activation_link: "https://ischolar.edu.ph/activate?token=abc123xyz"
+            },
+            reset: {
+                user_name: "Maria Santos",
+                reset_link: "https://ischolar.edu.ph/reset-password?token=def456abc",
+                ip_address: "192.168.1.100",
+                request_time: "September 22, 2025 at 10:30 AM"
+            },
+            recommendation: {
+                student_name: "Carlos Rivera",
+                recommendation_count: "3",
+                scholarship_1_name: "Academic Excellence Scholarship",
+                scholarship_1_amount: "50,000.00",
+                scholarship_1_score: "95",
+                scholarship_1_status: "Highly Eligible",
+                scholarship_1_description: "Merit-based scholarship for students with outstanding GWA",
+                scholarship_2_name: "Financial Assistance Grant",
+                scholarship_2_amount: "25,000.00",
+                scholarship_2_score: "78",
+                scholarship_2_status: "Eligible",
+                scholarship_2_description: "Need-based grant for students from low-income families",
+                dashboard_link: "https://ischolar.edu.ph/applicant/home",
+                generation_date: "September 22, 2025",
+                student_gwa: "1.75"
+            },
+            status: {
+                student_name: "Ana Mendoza",
+                application_status: "APPROVED",
+                status_icon: "✅",
+                status_color: "#28a745",
+                application_id: "APP-2025-00789",
+                scholarship_name: "STEM Excellence Scholarship",
+                submission_date: "September 15, 2025",
+                update_date: "September 22, 2025",
+                reviewer_name: "Dr. Emily Rodriguez",
+                status_title: "🎉 Congratulations! Your Application has been Approved",
+                status_message: "Your scholarship application has been approved. The scholarship committee was impressed with your academic performance and financial need. You will receive further instructions about the grant disbursement process via email within 3-5 business days.",
+                message_bg_color: "#d4edda",
+                message_border_color: "#28a745",
+                message_text_color: "#155724",
+                admin_remarks: "Excellent academic record and demonstrated financial need. Strong candidate for STEM program support.",
+                application_link: "https://ischolar.edu.ph/applicant/status"
+            }
+        };
+
+        // Function to populate sample data
+        function populateSampleData() {
+            const templates = ['activate', 'reset', 'recommendation', 'status'];
+            
+            templates.forEach(templateType => {
+                const variables = templateVariables[templateType];
+                const templateElement = document.getElementById(templateType + '-template');
+                
+                if (templateElement && variables) {
+                    let html = templateElement.innerHTML;
+                    
+                    // Replace template variables with sample data
+                    Object.keys(variables).forEach(key => {
+                        const regex = new RegExp(`{{${key}}}`, 'g');
+                        html = html.replace(regex, variables[key]);
+                    });
+                    
+                    templateElement.innerHTML = html;
+                }
+            });
+        }
+
+        // Populate sample data on load
+        document.addEventListener('DOMContentLoaded', populateSampleData);
+
+        // Print individual template function
+        function printTemplate(templateId) {
+            const template = document.getElementById(templateId + '-template');
+            const printWindow = window.open('', '_blank');
+            
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>iScholar Email Template - ${templateId}</title>
+                    <style>
+                        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+                        @media print { body { -webkit-print-color-adjust: exact; } }
+                    </style>
+                </head>
+                <body>
+                    ${template.innerHTML}
+                </body>
+                </html>
+            `);
+            
+            printWindow.document.close();
+            printWindow.print();
+        }
+
+        // Add print buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            const selectorDiv = document.querySelector('.template-selector');
+            const printButtonsHTML = `
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                    <p><strong>📄 Print Individual Templates:</strong></p>
+                    <div class="template-buttons">
+                        <button class="template-btn" onclick="printTemplate('activate')" style="background: #6c757d;">🖨️ Print Activate</button>
+                        <button class="template-btn" onclick="printTemplate('reset')" style="background: #6c757d;">🖨️ Print Reset</button>
+                        <button class="template-btn" onclick="printTemplate('recommendation')" style="background: #6c757d;">🖨️ Print Recommendation</button>
+                        <button class="template-btn" onclick="printTemplate('status')" style="background: #6c757d;">🖨️ Print Status</button>
+                    </div>
+                </div>
+            `;
+            selectorDiv.insertAdjacentHTML('beforeend', printButtonsHTML);
+        });
+    </script>
+
+    <!-- Developer Instructions -->
+    <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h3>🛠️ Developer Implementation Guide</h3>
+        
+        <h4>📋 Template Variables Reference:</h4>
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            <p><strong>Activate Account Template:</strong></p>
+            <code style="font-size: 12px; display: block; white-space: pre-wrap;">{{student_name}}, {{student_id}}, {{email}}, {{registration_date}}, {{activation_link}}</code>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            <p><strong>Reset Password Template:</strong></p>
+            <code style="font-size: 12px; display: block; white-space: pre-wrap;">{{user_name}}, {{reset_link}}, {{ip_address}}, {{request_time}}</code>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            <p><strong>Scholarship Recommendation Template:</strong></p>
+            <code style="font-size: 12px; display: block; white-space: pre-wrap;">{{student_name}}, {{recommendation_count}}, {{scholarship_1_name}}, {{scholarship_1_amount}}, {{scholarship_1_score}}, {{scholarship_1_status}}, {{scholarship_1_description}}, {{scholarship_2_name}}, {{scholarship_2_amount}}, {{scholarship_2_score}}, {{scholarship_2_status}}, {{scholarship_2_description}}, {{dashboard_link}}, {{generation_date}}, {{student_gwa}}</code>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            <p><strong>Application Status Template:</strong></p>
+            <code style="font-size: 12px; display: block; white-space: pre-wrap;">{{student_name}}, {{application_status}}, {{status_icon}}, {{status_color}}, {{application_id}}, {{scholarship_name}}, {{submission_date}}, {{update_date}}, {{reviewer_name}}, {{status_title}}, {{status_message}}, {{message_bg_color}}, {{message_border_color}}, {{message_text_color}}, {{admin_remarks}}, {{application_link}}</code>
+        </div>
+
+        <h4>🔧 Implementation Tips:</h4>
+        <ul style="line-height: 1.6; margin: 15px 0;">
+            <li><strong>Template Engine:</strong> Use your backend's template engine (Jinja2, Handlebars, etc.) to replace {{variables}}</li>
+            <li><strong>Responsive:</strong> All templates are mobile-responsive and use table-based layouts for email client compatibility</li>
+            <li><strong>Inline CSS:</strong> All styles are inline for maximum email client support</li>
+            <li><strong>Status Colors:</strong> Dynamically set colors based on application status (approved=green, pending=yellow, rejected=red)</li>
+            <li><strong>Multiple Scholarships:</strong> The recommendation template can be extended to show more than 2 scholarships</li>
+            <li><strong>Conditional Content:</strong> Use {{#if}} blocks for optional content like admin remarks</li>
+        </ul>
+
+        <h4>📧 Email Client Testing:</strong></h4>
+        <p style="margin: 10px 0; color: #666; font-size: 14px;">
+            Test these templates in Gmail, Outlook, Apple Mail, and mobile clients. The table-based layout and inline CSS ensure maximum compatibility across different email environments.
+        </p>
+    </div>
+</body>
+</html>
