@@ -3,16 +3,17 @@ import uuid
 
 import pymysql
 from flask_jwt_extended import create_access_token, create_refresh_token
-from flask_mail import Message
-
+from utils.config import email_activation_enabled
 from config import Config
 from extensions import mail
+from flask_mail import Message
 from storage import get_connection, redis_client
 from models.user import User
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
 from utils.utils import generate_avatar
 from services.notification_service import create_notification
+from services.email_service import send_activation_email
 class AuthService:
     @staticmethod
     def login(username, password):
@@ -27,6 +28,9 @@ class AuthService:
                 user = User(data)
                 if not verify_password(password, user.password):
                     return error("Invalid username or password."), 401
+                
+                if user.is_active == 0:
+                    return error("Account is inactive. Please activate your account."), 403
 
                 # JWT tokens
                 claims = {"role": user.role, "username": user.username}
@@ -81,14 +85,18 @@ class AuthService:
                     return error("The email is already registered."), 409
 
                 hashed = hash_password(data["password"])
+                activation_required = email_activation_enabled()
+
+                status = 0 if activation_required else 1
+                activation_code = str(uuid.uuid4()) if activation_required else None
 
                 name = f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
                 avatar = generate_avatar(name)
                 # Insert into users
                 cursor.execute("""
-                    INSERT INTO users (username, password, role, is_active, created_at, updated_at)
-                    VALUES (%s, %s, 'student', 1, NOW(), NOW())
-                """, (data["username"], hashed))
+                    INSERT INTO users (username, password, is_active, activation_code)
+                    VALUES (%s, %s, %s, %s)
+                """, (data["username"], hashed, status, activation_code))
                 user_id = connection.insert_id()
 
                 # Insert into students
@@ -112,7 +120,19 @@ class AuthService:
                 ))
 
             connection.commit()
-            return success("Registration successful"), 201
+            
+            if activation_required:
+                context = {
+                    "student_name": data.get("first_name", "") + " " + data.get("last_name", ""),
+                    "student_id": data["student_id"],
+                    "email": data["email"],
+                    "registration_date": datetime.datetime.utcnow().strftime("%B %d, %Y"),
+                    "activation_link": f"{Config.APP_URL}/activate?code={activation_code}"
+                }
+                send_activation_email(data["email"], context)
+                return success("Registration successful. Please check your email."), 201
+            else:
+                return success("Registration successful. You can now log in."), 201
 
         except pymysql.err.IntegrityError:
             connection.rollback()
