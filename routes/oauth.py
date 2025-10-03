@@ -83,6 +83,7 @@ def authorize_facebook():
         provider_id = user_info.get("id")
         first_name = user_info.get("first_name", "")
         last_name = user_info.get("last_name", "")
+        birth_day = user_info.get('user_birthday')
 
         # Facebook picture URL structure - get the large picture
         avatar = None
