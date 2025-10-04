@@ -13,7 +13,7 @@ from utils.hashing import hash_password, verify_password
 from utils.response import success, error
 from utils.utils import generate_avatar
 from services.notification_service import create_notification
-from services.email_service import send_activation_email
+from services.email_service import send_activation_email, send_password_reset_email
 class AuthService:
     @staticmethod
     def login(username, password):
@@ -150,7 +150,7 @@ class AuthService:
             with connection.cursor() as cursor:
                 # Find user by email
                 cursor.execute("""
-                    SELECT u.id 
+                    SELECT u.id, u.username 
                     FROM users u
                     JOIN students s ON s.user_id = u.id
                     WHERE s.email = %s AND u.deleted_at IS NULL
@@ -171,26 +171,11 @@ class AuthService:
                 connection.commit()
 
                 reset_link = f"{Config.APP_URL}/reset-password?token={token}"
-
-                # Send email
-                msg = Message(
-                    subject="iScholar Password Reset",
-                    sender=Config.MAIL_USERNAME,
-                    recipients=[email]
-                )
-                msg.body = f"""
-                Hello,
-
-                You requested to reset your password. Please click the link below to reset:
-
-                {reset_link}
-
-                This link will expire in 12 hours. If you didn’t request a reset, you can safely ignore this email.
-
-                -- iScholar Team
-                """
-                mail.send(msg)
-
+                context = {
+                    "reset_link": reset_link,
+                    "user_name": row['username']
+                }
+                send_password_reset_email(email, context)
                 return success("Password reset link sent"), 200
 
         except Exception as e:
