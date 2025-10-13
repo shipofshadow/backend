@@ -14,7 +14,6 @@ prequalify_bp = Blueprint("prequalify", __name__, url_prefix="/api/prequalify")
 fuzzy = FuzzyEligibilitySystem(get_connection)
 
 @prequalify_bp.route('/calculate', methods=['POST'])
-@jwt_required()
 def calculate_prequalification():
     """
     Real-time prequalification endpoint

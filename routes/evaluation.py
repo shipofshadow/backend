@@ -79,9 +79,9 @@ def fetch_evaluatees():
         cursor = connection.cursor()
 
         query = base_applicant_query() + """
-          WHERE applications.deleted_at IS NULL 
-          AND semesters.is_active = 1 
-          ORDER BY applications.status, applications.created_at DESC
+            WHERE applications.deleted_at IS NULL 
+            AND semesters.is_active = 1
+            ORDER BY applications.status, applications.created_at DESC
         """
 
         cursor.execute(query)

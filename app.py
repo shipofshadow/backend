@@ -23,6 +23,7 @@ from routes.notification import notification_bp
 from routes.oauth import oauth_bp
 from routes.prequalify import prequalify_bp
 from routes.profile import profile_bp
+from routes.s_reports import reports_bp
 from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
 from utils.applications import email_exists
@@ -86,6 +87,7 @@ app.register_blueprint(prequalify_bp)
 app.register_blueprint(notification_bp, strict_slashes=False)
 app.register_blueprint(application_draft_bp, strict_slashes=False)
 app.register_blueprint(oauth_bp)
+app.register_blueprint(reports_bp)
 # Swagger
 swagger = Swagger(app)
 

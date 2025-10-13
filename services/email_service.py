@@ -12,3 +12,11 @@ def send_activation_email(to_email, context):
     mail.send(msg)
     return True
 
+def send_password_reset_email(to_email, context):
+    msg = Message(
+        subject="Password Reset Request",
+        recipients=[to_email]
+    )
+    msg.html = render_template("password_reset_email.html", **context)
+    mail.send(msg)
+    return True
