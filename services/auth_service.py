@@ -3,14 +3,14 @@ import uuid
 
 import pymysql
 from flask_jwt_extended import create_access_token, create_refresh_token
-from utils.config import email_activation_enabled
 from config import Config
-from storage import get_connection, redis_client
 from models.user import User
+from services.email_service import send_activation_email, send_password_reset_email
+from storage import get_connection, redis_client
+from utils.config import email_activation_enabled
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
 from utils.utils import generate_avatar
-from services.email_service import send_activation_email, send_password_reset_email
 
 
 class AuthService:
@@ -149,7 +149,7 @@ class AuthService:
             with connection.cursor() as cursor:
                 # Find user by email
                 cursor.execute("""
-                    SELECT u.id, s.first_name, s.middle_name, s.last_name
+                    SELECT u.id 
                     FROM users u
                     JOIN students s ON s.user_id = u.id
                     WHERE s.email = %s AND u.deleted_at IS NULL
@@ -170,6 +170,11 @@ class AuthService:
                 connection.commit()
 
                 reset_link = f"{Config.APP_URL}/reset-password?token={token}"
+                context = {
+                    "reset_link": reset_link,
+                    "user_name": row['username']
+                }
+                send_password_reset_email(email, context)
 
                 context = {
                     "user_name": row["first_name"] + " " + row["last_name"],
