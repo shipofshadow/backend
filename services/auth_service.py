@@ -149,7 +149,7 @@ class AuthService:
             with connection.cursor() as cursor:
                 # Find user by email
                 cursor.execute("""
-                    SELECT u.id 
+                    SELECT u.id, s.first_name, s.last_name 
                     FROM users u
                     JOIN students s ON s.user_id = u.id
                     WHERE s.email = %s AND u.deleted_at IS NULL
@@ -170,11 +170,6 @@ class AuthService:
                 connection.commit()
 
                 reset_link = f"{Config.APP_URL}/reset-password?token={token}"
-                context = {
-                    "reset_link": reset_link,
-                    "user_name": row['username']
-                }
-                send_password_reset_email(email, context)
 
                 context = {
                     "user_name": row["first_name"] + " " + row["last_name"],
