@@ -27,30 +27,26 @@ def generate_avatar(name):
     return path
 
 def save_file(file, user_id, file_type):
-    # Get extension safely
     _, ext = os.path.splitext(secure_filename(file.filename))
     ext = ext.lower()
     unique_id = uuid.uuid4().hex
     filename = f"{user_id}_{file_type}_{unique_id}{ext}"
     path = os.path.join(UPLOAD_FOLDER, filename)
 
+    # Save original file first
     file.save(path)
 
     # IMAGE COMPRESSION
     if ext in [".jpg", ".jpeg", ".png"]:
         try:
-            img = Image.open(file)
+            img = Image.open(path)
             if ext in [".jpg", ".jpeg"]:
-                img.save(path, "JPEG", optimize=True, quality=70)  # 70% quality
+                img.save(path, "JPEG", optimize=True, quality=70)
             elif ext == ".png":
                 img.save(path, "PNG", optimize=True)
         except Exception as e:
-            # fallback if Pillow fails
-            file.save(path)
-
-    # DOCX or others → save
-    else:
-        file.save(path)
+            # fallback: already saved
+            pass
 
     return path
 

@@ -1,599 +1,1040 @@
-import pymysql
-from flask import Blueprint, jsonify, request, send_file
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask import Blueprint, jsonify, request
 from datetime import datetime
-from decimal import Decimal
-import io
-
 from pymysql import Error
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-import json
 from storage import get_connection
 
 reports_bp = Blueprint('reports', __name__, url_prefix='/api/reports')
 
 
-def decimal_to_float(obj):
-    """Convert Decimal objects to float for JSON serialization"""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
 
-
-# Filter Options Endpoints
-@reports_bp.route('/academic-years', methods=['GET'])
-def get_academic_years():
-    """Get all academic years for filter dropdown"""
+def execute_query(query, params=None, fetch_one=False):
+    """Execute a query and return results"""
     conn = get_connection()
     if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
+        return None
 
     try:
         cursor = conn.cursor()
-        cursor.execute("""
-                       SELECT id, year_start, year_end
-                       FROM academic_years
-                       WHERE deleted_at IS NULL
-                       ORDER BY year_start DESC
-                       """)
-        years = cursor.fetchall()
-        return jsonify(years), 200
-    except Error as e:
-        return jsonify({'error': str(e)}), 500
+        cursor.execute(query, params or ())
 
+        if fetch_one:
+            result = cursor.fetchone()
+        else:
+            result = cursor.fetchall()
 
-@reports_bp.route('/semesters', methods=['GET'])
-def get_semesters():
-    """Get all semesters for filter dropdown"""
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-                       SELECT s.id, s.name, ay.year_start, ay.year_end
-                       FROM semesters s
-                                JOIN academic_years ay ON s.academic_year_id = ay.id
-                       WHERE s.deleted_at IS NULL
-                       ORDER BY ay.year_start DESC, s.name
-                       """)
-        semesters = cursor.fetchall()
-        return jsonify(semesters), 200
-    except Error as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@reports_bp.route('/campuses', methods=['GET'])
-def get_campuses():
-    """Get all campuses for filter dropdown"""
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT campus_id, name FROM campuses ORDER BY name")
-        campuses = cursor.fetchall()
-        return jsonify(campuses), 200
-    except Error as e:
-        return jsonify({'error': str(e)}), 500
-
-def decimal_to_float(obj):
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
-
-
-def get_dict_cursor(conn):
-    """Helper to get dict cursor"""
-    return conn.cursor(pymysql.cursors.DictCursor)
-
-# Main Scholarship Summary Report
-@reports_bp.route('/scholarship-summary', methods=['GET'])
-def get_scholarship_summary():
-    """
-    Generate comprehensive scholarship summary report
-    Query params: academic_year_id, semester_id, campus_id (optional filters)
-    """
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    cursor = get_dict_cursor(conn)
-    try:
-        academic_year_id = request.args.get('academic_year_id', type=int)
-        semester_id = request.args.get('semester_id', type=int)
-        campus_id = request.args.get('campus_id', type=int)
-
-        filter_conditions = ["a.deleted_at IS NULL"]
-        filter_params = []
-
-        if academic_year_id:
-            filter_conditions.append("s.academic_year_id = %s")
-            filter_params.append(academic_year_id)
-
-        if semester_id:
-            filter_conditions.append("a.semester_id = %s")
-            filter_params.append(semester_id)
-
-        if campus_id:
-            filter_conditions.append("ei.campus_id = %s")
-            filter_params.append(campus_id)
-
-        filter_where = " AND ".join(filter_conditions)
-
-        # Overall summary
-        overall_query = f"""
-            SELECT 
-                COUNT(DISTINCT sch.id) AS total_scholarships,
-                COUNT(DISTINCT a.id) AS total_applications,
-                COUNT(DISTINCT CASE WHEN a.status = 'approved' THEN a.id END) AS total_approved_applications,
-                COUNT(DISTINCT CASE WHEN ss.status IN ('selected','awarded') THEN a.student_id END) AS total_awarded_students,
-                COALESCE(SUM(CASE WHEN ss.status IN ('selected','awarded') THEN ss.awarded_amount ELSE 0 END),0) AS total_grant_released
-            FROM scholarships sch
-            LEFT JOIN scholarship_selections ss ON sch.id = ss.scholarship_id
-            LEFT JOIN applications a ON ss.application_id = a.id
-            LEFT JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-        """
-        cursor.execute(overall_query, filter_params)
-        overall_summary = cursor.fetchone() or {}
-
-        # Per-scholarship summary
-        scholarship_query = f"""
-            SELECT 
-                sch.id,
-                sch.name,
-                sch.description,
-                COUNT(DISTINCT a.id) AS total_applications,
-                COUNT(DISTINCT CASE WHEN ss.status IN ('selected','awarded') THEN ss.application_id END) AS total_awarded,
-                COALESCE(AVG(e.gwa), 0) AS avg_gwa,
-                COALESCE(AVG((fb.father_income + fb.mother_income)/2), 0) AS avg_income,
-                COALESCE(SUM(ss.awarded_amount), 0) AS total_grant_amount
-            FROM scholarships sch
-            LEFT JOIN scholarship_selections ss ON sch.id = ss.scholarship_id
-            LEFT JOIN applications a ON ss.application_id = a.id
-            LEFT JOIN evaluations e ON a.id = e.application_id
-            LEFT JOIN family_background fb ON a.student_id = fb.student_id
-            LEFT JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-            GROUP BY sch.id
-            ORDER BY total_awarded DESC
-        """
-        cursor.execute(scholarship_query, filter_params)
-        scholarships_raw = cursor.fetchall()
-
-        scholarships = []
-        for sch in scholarships_raw:
-            award_rate = (
-                (sch['total_awarded'] / sch['total_applications']) * 100
-                if sch['total_applications'] > 0 else 0
-            )
-
-            # top 3 campus breakdown
-            campus_query = f"""
-                SELECT c.name AS campus_name, COUNT(DISTINCT ss.application_id) AS count
-                FROM scholarship_selections ss
-                JOIN applications a ON ss.application_id = a.id
-                JOIN education_info ei ON a.student_id = ei.student_id
-                JOIN campuses c ON ei.campus_id = c.campus_id
-                JOIN semesters s ON a.semester_id = s.id
-                WHERE ss.scholarship_id = %s AND ss.status IN ('selected','awarded')
-                    AND {filter_where}
-                GROUP BY c.campus_id
-                ORDER BY count DESC
-                LIMIT 3
-            """
-            cursor.execute(campus_query, [sch['id']] + filter_params)
-            top_campuses = cursor.fetchall()
-
-            # top 3 departments
-            dept_query = f"""
-                SELECT d.name AS department_name, COUNT(DISTINCT ss.application_id) AS count
-                FROM scholarship_selections ss
-                JOIN applications a ON ss.application_id = a.id
-                JOIN education_info ei ON a.student_id = ei.student_id
-                JOIN departments d ON ei.department_id = d.department_id
-                JOIN semesters s ON a.semester_id = s.id
-                WHERE ss.scholarship_id = %s AND ss.status IN ('selected','awarded')
-                    AND {filter_where}
-                GROUP BY d.department_id
-                ORDER BY count DESC
-                LIMIT 3
-            """
-            cursor.execute(dept_query, [sch['id']] + filter_params)
-            top_departments = cursor.fetchall()
-
-            scholarships.append({
-                'id': sch['id'],
-                'name': sch['name'],
-                'description': sch['description'],
-                'total_awarded': sch['total_awarded'],
-                'total_applications': sch['total_applications'],
-                'award_rate': award_rate,
-                'avg_gwa': float(sch['avg_gwa']),
-                'avg_income': float(sch['avg_income']),
-                'total_grant_amount': float(sch['total_grant_amount']),
-                'top_campuses': top_campuses,
-                'top_departments': top_departments
-            })
-
-        return jsonify({
-            'overall_summary': overall_summary,
-            'scholarships': scholarships
-        }), 200
-
-    except Error as e:
-        print("Error in scholarship summary:", e)
-        return jsonify({'error': str(e)}), 500
-    finally:
         cursor.close()
         conn.close()
-
-# Trends Endpoint
-@reports_bp.route('/trends', methods=['GET'])
-def get_trends():
-    """Get application vs award trends over semesters"""
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    try:
-        cursor = conn.cursor()
-
-        # Get filter parameters
-        academic_year_id = request.args.get('academic_year_id', type=int)
-        campus_id = request.args.get('campus_id', type=int)
-
-        filter_conditions = ["a.deleted_at IS NULL"]
-        filter_params = []
-
-        if academic_year_id:
-            filter_conditions.append("s.academic_year_id = %s")
-            filter_params.append(academic_year_id)
-
-        if campus_id:
-            filter_conditions.append("ei.campus_id = %s")
-            filter_params.append(campus_id)
-
-        filter_where = " AND ".join(filter_conditions)
-
-        query = f"""
-            SELECT 
-                CONCAT(s.name, ' ', ay.year_start, '-', ay.year_end) as semester,
-                COUNT(DISTINCT a.id) as applications,
-                COUNT(DISTINCT CASE WHEN ss.status IN ('selected', 'awarded') THEN ss.application_id END) as awards
-            FROM applications a
-            JOIN semesters s ON a.semester_id = s.id
-            JOIN academic_years ay ON s.academic_year_id = ay.id
-            LEFT JOIN scholarship_selections ss ON a.id = ss.application_id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-            GROUP BY s.id
-            ORDER BY ay.year_start, s.name
-        """
-
-        cursor.execute(query, filter_params)
-        trends = cursor.fetchall()
-
-        return jsonify(trends), 200
-
+        return result
     except Error as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# Demographics Endpoint
-@reports_bp.route('/demographics', methods=['GET'])
-def get_demographics():
-    """Get demographic breakdown of awarded students"""
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    try:
-        cursor = conn.cursor()
-
-        # Get filter parameters
-        academic_year_id = request.args.get('academic_year_id', type=int)
-        semester_id = request.args.get('semester_id', type=int)
-        campus_id = request.args.get('campus_id', type=int)
-
-        filter_conditions = ["a.deleted_at IS NULL", "ss.status IN ('selected', 'awarded')"]
-        filter_params = []
-
-        if academic_year_id:
-            filter_conditions.append("s.academic_year_id = %s")
-            filter_params.append(academic_year_id)
-
-        if semester_id:
-            filter_conditions.append("a.semester_id = %s")
-            filter_params.append(semester_id)
-
-        if campus_id:
-            filter_conditions.append("ei.campus_id = %s")
-            filter_params.append(campus_id)
-
-        filter_where = " AND ".join(filter_conditions)
-
-        # Gender breakdown
-        gender_query = f"""
-            SELECT 
-                st.gender as name,
-                COUNT(DISTINCT a.student_id) as count
-            FROM scholarship_selections ss
-            JOIN applications a ON ss.application_id = a.id
-            JOIN students st ON a.student_id = st.user_id
-            JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-            GROUP BY st.gender
-        """
-        cursor.execute(gender_query, filter_params)
-        by_gender = cursor.fetchall()
-
-        # Average age
-        age_query = f"""
-            SELECT 
-                AVG(YEAR(CURDATE()) - YEAR(st.birth_date)) as avg_age
-            FROM scholarship_selections ss
-            JOIN applications a ON ss.application_id = a.id
-            JOIN students st ON a.student_id = st.user_id
-            JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-        """
-        cursor.execute(age_query, filter_params)
-        age_result = cursor.fetchone()
-
-        # 4Ps members
-        fourps_query = f"""
-            SELECT 
-                COUNT(DISTINCT a.student_id) as fourps_count
-            FROM scholarship_selections ss
-            JOIN applications a ON ss.application_id = a.id
-            JOIN family_background fb ON a.student_id = fb.student_id
-            JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where} AND fb.is_4ps_member = 1
-        """
-        cursor.execute(fourps_query, filter_params)
-        fourps_result = cursor.fetchone()
-
-        # Indigenous Peoples
-        ip_query = f"""
-            SELECT 
-                COUNT(DISTINCT a.student_id) as ip_count
-            FROM scholarship_selections ss
-            JOIN applications a ON ss.application_id = a.id
-            JOIN family_background fb ON a.student_id = fb.student_id
-            JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where} 
-                AND fb.ip_affiliation IS NOT NULL 
-                AND fb.ip_affiliation != ''
-        """
-        cursor.execute(ip_query, filter_params)
-        ip_result = cursor.fetchone()
-
-        # OFW dependents
-        ofw_query = f"""
-            SELECT 
-                COUNT(DISTINCT a.student_id) as ofw_count
-            FROM scholarship_selections ss
-            JOIN applications a ON ss.application_id = a.id
-            JOIN family_background fb ON a.student_id = fb.student_id
-            JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where} 
-                AND (LOWER(fb.father_occupation) LIKE '%ofw%' 
-                     OR LOWER(fb.mother_occupation) LIKE '%ofw%')
-        """
-        cursor.execute(ofw_query, filter_params)
-        ofw_result = cursor.fetchone()
-
-        demographics = {
-            'by_gender': by_gender,
-            'avg_age': float(age_result['avg_age']) if age_result['avg_age'] else 0,
-            'fourps_count': fourps_result['fourps_count'],
-            'ip_count': ip_result['ip_count'],
-            'ofw_count': ofw_result['ofw_count']
-        }
-
-        return jsonify(demographics), 200
-
-    except Error as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# PDF Export Endpoint
-@reports_bp.route('/export-pdf', methods=['GET'])
-def export_pdf():
-    """Generate and download PDF report"""
-    conn = get_connection()
-    if not conn:
-        return jsonify({'error': 'Database connection failed'}), 500
-
-    try:
-        # Create PDF in memory
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=72, leftMargin=72,
-                                topMargin=72, bottomMargin=18)
-
-        # Container for PDF elements
-        elements = []
-
-        # Styles
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#1e40af'),
-            spaceAfter=30,
-            alignment=TA_CENTER
-        )
-
-        heading_style = ParagraphStyle(
-            'CustomHeading',
-            parent=styles['Heading2'],
-            fontSize=16,
-            textColor=colors.HexColor('#3b82f6'),
-            spaceAfter=12,
-            spaceBefore=12
-        )
-
-        # Add title
-        title = Paragraph("Scholarship Summary Report", title_style)
-        elements.append(title)
-        elements.append(Spacer(1, 12))
-
-        # Add generation date
-        date_text = Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y')}", styles['Normal'])
-        elements.append(date_text)
-        elements.append(Spacer(1, 20))
-
-        # Fetch data (reuse logic from scholarship-summary endpoint)
-        cursor = conn.cursor()
-
-        # Get filters
-        academic_year_id = request.args.get('academic_year_id', type=int)
-        semester_id = request.args.get('semester_id', type=int)
-        campus_id = request.args.get('campus_id', type=int)
-
-        filter_conditions = ["a.deleted_at IS NULL"]
-        filter_params = []
-
-        if academic_year_id:
-            filter_conditions.append("s.academic_year_id = %s")
-            filter_params.append(academic_year_id)
-
-        if semester_id:
-            filter_conditions.append("a.semester_id = %s")
-            filter_params.append(semester_id)
-
-        if campus_id:
-            filter_conditions.append("ei.campus_id = %s")
-            filter_params.append(campus_id)
-
-        filter_where = " AND ".join(filter_conditions)
-
-        # Get overall summary
-        overall_query = f"""
-            SELECT 
-                COUNT(DISTINCT sch.id) as total_scholarships,
-                COUNT(DISTINCT a.id) as total_applications,
-                COUNT(DISTINCT CASE WHEN ss.status IN ('selected', 'awarded') THEN a.student_id END) as total_awarded_students,
-                COALESCE(SUM(CASE WHEN ss.status IN ('selected', 'awarded') THEN ss.awarded_amount ELSE 0 END), 0) as total_grant_released
-            FROM scholarships sch
-            LEFT JOIN scholarship_selections ss ON sch.id = ss.scholarship_id
-            LEFT JOIN applications a ON ss.application_id = a.id
-            LEFT JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-        """
-
-        cursor.execute(overall_query, filter_params)
-        overall = cursor.fetchone()
-
-        # Overall Summary Section
-        elements.append(Paragraph("Overall Summary", heading_style))
-        summary_data = [
-            ['Metric', 'Value'],
-            ['Total Scholarships', str(overall['total_scholarships'])],
-            ['Total Applications', str(overall['total_applications'])],
-            ['Total Awarded Students', str(overall['total_awarded_students'])],
-            ['Total Grant Released', f"₱{float(overall['total_grant_released']):,.2f}"]
-        ]
-
-        summary_table = Table(summary_data, colWidths=[3 * inch, 2 * inch])
-        summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-
-        elements.append(summary_table)
-        elements.append(Spacer(1, 20))
-
-        # Get scholarship details
-        scholarship_query = f"""
-            SELECT 
-                sch.name,
-                COUNT(DISTINCT CASE WHEN ss.status IN ('selected', 'awarded') THEN ss.application_id END) as total_awarded,
-                COALESCE(AVG(CASE WHEN ss.status IN ('selected', 'awarded') THEN e.gwa END), 0) as avg_gwa,
-                COALESCE(SUM(CASE WHEN ss.status IN ('selected', 'awarded') THEN ss.awarded_amount ELSE 0 END), 0) as total_grant
-            FROM scholarships sch
-            LEFT JOIN scholarship_selections ss ON sch.id = ss.scholarship_id
-            LEFT JOIN applications a ON ss.application_id = a.id
-            LEFT JOIN evaluations e ON a.id = e.application_id
-            LEFT JOIN semesters s ON a.semester_id = s.id
-            LEFT JOIN education_info ei ON a.student_id = ei.student_id
-            WHERE {filter_where}
-            GROUP BY sch.id
-            HAVING total_awarded > 0
-            ORDER BY total_awarded DESC
-        """
-
-        cursor.execute(scholarship_query, filter_params)
-        scholarships = cursor.fetchall()
-
-        # Scholarships Section
-        elements.append(PageBreak())
-        elements.append(Paragraph("Scholarship Details", heading_style))
-
-        if scholarships:
-            sch_data = [['Scholarship Name', 'Awarded', 'Avg GWA', 'Total Grant']]
-            for sch in scholarships:
-                sch_data.append([
-                    sch['name'][:40] + '...' if len(sch['name']) > 40 else sch['name'],
-                    str(sch['total_awarded']),
-                    f"{float(sch['avg_gwa']):.2f}",
-                    f"₱{float(sch['total_grant']):,.2f}"
-                ])
-
-            sch_table = Table(sch_data, colWidths=[3 * inch, 1 * inch, 1 * inch, 1.5 * inch])
-            sch_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#3b82f6')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('FONTSIZE', (0, 1), (-1, -1), 9)
-            ]))
-
-            elements.append(sch_table)
-
-        # Build PDF
-        doc.build(elements)
-
-        # Prepare response
-        buffer.seek(0)
-        return send_file(
-            buffer,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=f'scholarship_report_{datetime.now().strftime("%Y%m%d")}.pdf'
-        )
-
-    except Error as e:
-        return jsonify({'error': str(e)}), 500
-    finally:
-        if conn.is_connected():
-            cursor.close()
+        print(f"Error executing query: {e}")
+        if conn:
             conn.close()
+        return None
+
+
+# ============================================================================
+# FILTER HELPER
+# ============================================================================
+def build_filter_conditions(filters):
+    """Build SQL WHERE conditions based on filters"""
+    conditions = []
+    params = []
+
+    # Academic Year filter
+    if filters.get('academicYear') and filters['academicYear'] != 'All':
+        year_parts = filters['academicYear'].split('-')
+        conditions.append("ay.year_start = %s AND ay.year_end = %s")
+        params.extend([int(year_parts[0]), int(year_parts[1])])
+
+    # Semester filter
+    if filters.get('semester') and filters['semester'] != 'All':
+        conditions.append("sem.name = %s")
+        params.append(filters['semester'])
+
+    # Campus filter
+    if filters.get('campus') and filters['campus'] != 'All':
+        conditions.append("c.name = %s")
+        params.append(filters['campus'])
+
+    # Department filter
+    if filters.get('department') and filters['department'] != 'All':
+        conditions.append("d.name = %s")
+        params.append(filters['department'])
+
+    # Course filter
+    if filters.get('course') and filters['course'] != 'All':
+        conditions.append("co.name LIKE %s")
+        params.append(f"%{filters['course']}%")
+
+    # Scholarship filter
+    if filters.get('scholarship') and filters['scholarship'] != 'All':
+        conditions.append("sch.name LIKE %s")
+        params.append(f"%{filters['scholarship']}%")
+
+    # Status filter
+    if filters.get('status') and filters['status'] != 'All':
+        status_map = {
+            'Pending': 'pending',
+            'Approved': 'approved',
+            'Denied': 'denied',
+            'Evaluated': 'evaluated'
+        }
+        conditions.append("app.status = %s")
+        params.append(status_map.get(filters['status'], filters['status'].lower()))
+
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+    return where_clause, params
+
+
+# ============================================================================
+# DASHBOARD SUMMARY ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/summary', methods=['GET'])
+def get_dashboard_summary():
+    """Get key metrics for the dashboard"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Active Scholarships
+    active_scholarships_query = """
+                                SELECT COUNT(*) as count
+                                FROM scholarships
+                                WHERE is_active = 1 AND deleted_at IS NULL \
+                                """
+    active_scholarships = execute_query(active_scholarships_query, fetch_one=True)
+
+    # Total Applications
+    total_applications_query = f"""
+        SELECT COUNT(DISTINCT app.id) as count
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    total_applications = execute_query(total_applications_query, params, fetch_one=True)
+
+    # Approved Applications
+    approved_applications_query = f"""
+        SELECT COUNT(DISTINCT app.id) as count
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND app.status = 'approved' AND {where_clause}
+    """
+    approved_applications = execute_query(approved_applications_query, params, fetch_one=True)
+
+    # Average GWA
+    avg_gwa_query = f"""
+        SELECT AVG(e.gwa) as avg_gwa
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND app.status = 'approved' AND {where_clause}
+    """
+    avg_gwa = execute_query(avg_gwa_query, params, fetch_one=True)
+
+    # Average Income
+    avg_income_query = f"""
+        SELECT AVG(e.income) as avg_income
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    avg_income = execute_query(avg_income_query, params, fetch_one=True)
+
+    # Top Campus
+    top_campus_query = f"""
+        SELECT c.name, 
+               COUNT(app.id) as total_apps,
+               SUM(CASE WHEN app.status = 'approved' THEN 1 ELSE 0 END) as approved,
+               ROUND((SUM(CASE WHEN app.status = 'approved' THEN 1 ELSE 0 END) * 100.0 / COUNT(app.id)), 2) as approval_rate
+        FROM applications app
+        JOIN education_info ei ON app.student_id = ei.student_id
+        JOIN campuses c ON ei.campus_id = c.campus_id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY c.name
+        ORDER BY approved DESC, approval_rate DESC
+        LIMIT 1
+    """
+    top_campus = execute_query(top_campus_query, params, fetch_one=True)
+
+    return jsonify({
+        'metrics': {
+            'activeScholarships': active_scholarships['count'] if active_scholarships else 0,
+            'totalApplications': total_applications['count'] if total_applications else 0,
+            'approvedApplications': approved_applications['count'] if approved_applications else 0,
+            'avgGWA': round(avg_gwa['avg_gwa'], 2) if avg_gwa and avg_gwa['avg_gwa'] else 0,
+            'avgIncome': round(avg_income['avg_income'], 2) if avg_income and avg_income['avg_income'] else 0,
+            'topCampus': top_campus['name'] if top_campus else 'N/A',
+            'topCampusRate': round(top_campus['approval_rate'], 2) if top_campus else 0
+        }
+    })
+
+
+# ============================================================================
+# SCHOLARSHIPS DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/scholarships', methods=['GET'])
+def get_scholarships_data():
+    """Get scholarship-related data for charts"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Scholarship Distribution (Active vs Inactive)
+    distribution_query = """
+                         SELECT SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active, \
+                                SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive
+                         FROM scholarships
+                         WHERE deleted_at IS NULL \
+                         """
+    distribution = execute_query(distribution_query, fetch_one=True)
+
+    # Applications per Scholarship
+    applications_per_scholarship_query = f"""
+        SELECT 
+            sch.name,
+            COUNT(DISTINCT rs.application_id) as applications
+        FROM scholarships sch
+        LEFT JOIN recommended_scholarships rs ON sch.id = rs.scholarship_id
+        LEFT JOIN applications app ON rs.application_id = app.id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        WHERE sch.deleted_at IS NULL 
+        AND (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY sch.id, sch.name
+        ORDER BY applications DESC
+        LIMIT 10
+    """
+    applications_per_scholarship = execute_query(applications_per_scholarship_query, params)
+
+    # Status Distribution per Scholarship
+    status_distribution_query = f"""
+        SELECT 
+            sch.name,
+            SUM(CASE WHEN app.status = 'approved' THEN 1 ELSE 0 END) as approved,
+            SUM(CASE WHEN app.status = 'denied' THEN 1 ELSE 0 END) as denied,
+            SUM(CASE WHEN app.status = 'pending' THEN 1 ELSE 0 END) as pending
+        FROM scholarships sch
+        LEFT JOIN recommended_scholarships rs ON sch.id = rs.scholarship_id
+        LEFT JOIN applications app ON rs.application_id = app.id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        WHERE sch.deleted_at IS NULL 
+        AND (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY sch.id, sch.name
+        HAVING (approved + denied + pending) > 0
+        ORDER BY (approved + denied + pending) DESC
+        LIMIT 10
+    """
+    status_distribution = execute_query(status_distribution_query, params)
+
+    # Top Scholarships with Details
+    top_scholarships_query = f"""
+        SELECT 
+            sch.name,
+            COUNT(DISTINCT rs.application_id) as applications,
+            AVG(e.gwa) as avg_gwa,
+            AVG(e.income) as avg_income,
+            ROUND((SUM(CASE WHEN app.status = 'approved' THEN 1 ELSE 0 END) * 100.0 / 
+                   NULLIF(COUNT(DISTINCT rs.application_id), 0)), 2) as approval_rate,
+            SUM(COALESCE(ss.awarded_amount, 0)) as total_awarded
+        FROM scholarships sch
+        LEFT JOIN recommended_scholarships rs ON sch.id = rs.scholarship_id
+        LEFT JOIN applications app ON rs.application_id = app.id
+        LEFT JOIN evaluations e ON app.id = e.application_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id AND sch.id = ss.scholarship_id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        WHERE sch.deleted_at IS NULL 
+        AND (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY sch.id, sch.name
+        HAVING applications > 0
+        ORDER BY applications DESC, approval_rate DESC
+        LIMIT 10
+    """
+    top_scholarships = execute_query(top_scholarships_query, params)
+
+    # Least Utilized Scholarships
+    least_utilized_query = f"""
+        SELECT 
+            sch.name,
+            COUNT(DISTINCT rs.application_id) as applications,
+            AVG(e.gwa) as avg_gwa,
+            AVG(e.income) as avg_income
+        FROM scholarships sch
+        LEFT JOIN recommended_scholarships rs ON sch.id = rs.scholarship_id
+        LEFT JOIN applications app ON rs.application_id = app.id
+        LEFT JOIN evaluations e ON app.id = e.application_id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        WHERE sch.is_active = 1 
+        AND sch.deleted_at IS NULL
+        AND (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY sch.id, sch.name
+        ORDER BY applications ASC
+        LIMIT 10
+    """
+    least_utilized = execute_query(least_utilized_query, params)
+
+    return jsonify({
+        'distribution': {
+            'active': distribution['active'] if distribution else 0,
+            'inactive': distribution['inactive'] if distribution else 0
+        },
+        'applicationsPerScholarship': applications_per_scholarship or [],
+        'statusDistribution': status_distribution or [],
+        'topScholarships': top_scholarships or [],
+        'leastUtilized': least_utilized or []
+    })
+
+
+# ============================================================================
+# CAMPUSES DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/campuses', methods=['GET'])
+def get_campuses_data():
+    """Get campus and department data"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Applications by Campus
+    campus_query = f"""
+        SELECT 
+            c.name,
+            COUNT(DISTINCT app.id) as applications
+        FROM campuses c
+        LEFT JOIN education_info ei ON c.campus_id = ei.campus_id
+        LEFT JOIN applications app ON ei.student_id = app.student_id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY c.campus_id, c.name
+        ORDER BY applications DESC
+    """
+    campuses = execute_query(campus_query, params)
+
+    # Applications by Department
+    department_query = f"""
+        SELECT 
+            d.name,
+            COUNT(DISTINCT app.id) as applications
+        FROM departments d
+        LEFT JOIN education_info ei ON d.department_id = ei.department_id
+        LEFT JOIN applications app ON ei.student_id = app.student_id
+        LEFT JOIN semesters sem ON app.semester_id = sem.id
+        LEFT JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE (app.id IS NULL OR (app.deleted_at IS NULL AND {where_clause}))
+        GROUP BY d.department_id, d.name
+        ORDER BY applications DESC
+    """
+    departments = execute_query(department_query, params)
+
+    return jsonify({
+        'campuses': campuses or [],
+        'departments': departments or []
+    })
+
+
+# ============================================================================
+# FUZZY EVALUATION DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/fuzzy', methods=['GET'])
+def get_fuzzy_data():
+    """Get fuzzy logic evaluation data"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Classification Distribution
+    classification_query = f"""
+        SELECT 
+            e.classification,
+            COUNT(*) as count
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY e.classification
+    """
+    classifications = execute_query(classification_query, params)
+
+    # GWA vs Income Scatter Data
+    scatter_query = f"""
+        SELECT 
+            e.gwa,
+            e.income,
+            e.score,
+            e.classification
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    scatter_data = execute_query(scatter_query, params)
+
+    # Average Score Trend (by semester)
+    trend_query = f"""
+        SELECT 
+            CONCAT(ay.year_start, '-', ay.year_end) as academic_year,
+            sem.name as semester,
+            AVG(e.score) as avg_score
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY ay.year_start, ay.year_end, sem.name
+        ORDER BY ay.year_start, 
+                 CASE sem.name 
+                     WHEN '1st Semester' THEN 1 
+                     WHEN '2nd Semester' THEN 2 
+                     ELSE 3 
+                 END
+    """
+    score_trend = execute_query(trend_query, params)
+
+    return jsonify({
+        'classifications': classifications or [],
+        'scatterData': scatter_data or [],
+        'scoreTrend': score_trend or []
+    })
+
+
+# ============================================================================
+# TIME SERIES DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/timeseries', methods=['GET'])
+def get_timeseries_data():
+    """Get time series analysis data"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Monthly Applications Trend
+    monthly_query = f"""
+        SELECT 
+            MONTH(app.submitted_at) as month,
+            YEAR(app.submitted_at) as year,
+            COUNT(*) as applications
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY YEAR(app.submitted_at), MONTH(app.submitted_at)
+        ORDER BY year, month
+    """
+    monthly_data = execute_query(monthly_query, params)
+
+    # Yearly Scholarships Awarded
+    yearly_query = f"""
+        SELECT 
+            CONCAT(ay.year_start, '-', ay.year_end) as academic_year,
+            COUNT(DISTINCT app.id) as total_applications,
+            COUNT(DISTINCT ss.id) as awarded
+        FROM academic_years ay
+        LEFT JOIN semesters sem ON ay.id = sem.academic_year_id
+        LEFT JOIN applications app ON sem.id = app.semester_id AND app.deleted_at IS NULL
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE (app.id IS NULL OR {where_clause})
+        GROUP BY ay.year_start, ay.year_end
+        ORDER BY ay.year_start
+    """
+    yearly_data = execute_query(yearly_query, params)
+
+    # Application Status Over Time
+    status_timeline_query = f"""
+        SELECT 
+            DATE_FORMAT(app.submitted_at, '%%Y-%%m') as month,
+            SUM(CASE WHEN app.status = 'pending' THEN 1 ELSE 0 END) as pending,
+            SUM(CASE WHEN app.status = 'approved' THEN 1 ELSE 0 END) as approved,
+            SUM(CASE WHEN app.status = 'evaluated' THEN 1 ELSE 0 END) as evaluated,
+            SUM(CASE WHEN app.status = 'denied' THEN 1 ELSE 0 END) as denied
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY DATE_FORMAT(app.submitted_at, '%%Y-%%m')
+        ORDER BY month
+    """
+    status_timeline = execute_query(status_timeline_query, params)
+
+    return jsonify({
+        'monthly': monthly_data or [],
+        'yearly': yearly_data or [],
+        'statusTimeline': status_timeline or []
+    })
+
+
+# ============================================================================
+# DEMOGRAPHICS DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/demographics', methods=['GET'])
+def get_demographics_data():
+    """Get applicant demographics data"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Gender Distribution
+    gender_query = f"""
+        SELECT 
+            s.gender,
+            COUNT(DISTINCT app.id) as count
+        FROM students s
+        JOIN applications app ON s.user_id = app.student_id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY s.gender
+    """
+    gender_data = execute_query(gender_query, params)
+
+    # Year Level Distribution
+    year_level_query = f"""
+        SELECT 
+            ei.year_level,
+            COUNT(DISTINCT app.id) as count
+        FROM education_info ei
+        JOIN applications app ON ei.student_id = app.student_id
+        JOIN semesters sem ON app.semester_id = sem.id AND ei.semester_id = app.semester_id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY ei.year_level
+        ORDER BY ei.year_level
+    """
+    year_level_data = execute_query(year_level_query, params)
+
+    # Income Bracket Distribution
+    income_query = f"""
+        SELECT 
+            CASE 
+                WHEN e.income <= 10000 THEN '₱0-10k'
+                WHEN e.income <= 20000 THEN '₱10k-20k'
+                WHEN e.income <= 30000 THEN '₱20k-30k'
+                WHEN e.income <= 40000 THEN '₱30k-40k'
+                ELSE '₱40k+'
+            END as income_bracket,
+            COUNT(DISTINCT app.id) as count
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        GROUP BY income_bracket
+        ORDER BY MIN(e.income)
+    """
+    income_data = execute_query(income_query, params)
+
+    # Qualification Factors (for radar chart)
+    qualification_query = f"""
+        SELECT 
+            SUM(CASE WHEN e.gwa <= 1.5 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as high_gwa,
+            SUM(CASE WHEN e.income <= 15000 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as low_income,
+            SUM(CASE WHEN fb.is_4ps_member = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as fourps,
+            SUM(CASE WHEN fb.ip_affiliation IS NOT NULL AND fb.ip_affiliation != '' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as ip,
+            SUM(CASE WHEN fb.father_occupation = 'ofw' OR fb.mother_occupation = 'ofw' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as ofw
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN family_background fb ON app.student_id = fb.student_id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    qualification_data = execute_query(qualification_query, params, fetch_one=True)
+
+    return jsonify({
+        'gender': gender_data or [],
+        'yearLevel': year_level_data or [],
+        'income': income_data or [],
+        'qualificationFactors': qualification_data or {}
+    })
+
+
+# ============================================================================
+# INCOME VS GWA BUBBLE DATA
+# ============================================================================
+@reports_bp.route('/dashboard/income-gwa-bubble', methods=['GET'])
+def get_income_gwa_bubble():
+    """Get income vs GWA bubble chart data"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    bubble_query = f"""
+        SELECT 
+            e.income,
+            e.gwa,
+            e.score,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name
+        FROM evaluations e
+        JOIN applications app ON e.application_id = app.id
+        JOIN students s ON app.student_id = s.user_id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    bubble_data = execute_query(bubble_query, params)
+
+    return jsonify({
+        'bubbleData': bubble_data or []
+    })
+
+
+# ============================================================================
+# EXPORT DATA ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/export', methods=['GET'])
+def export_dashboard_data():
+    """Export all dashboard data for reporting"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Comprehensive export query
+    export_query = f"""
+        SELECT 
+            app.id as application_id,
+            app.reference_number,
+            s.student_id,
+            CONCAT(s.first_name, ' ', s.last_name) as student_name,
+            s.email,
+            s.contact_number,
+            s.gender,
+            DATE_FORMAT(s.birth_date, '%%Y-%%m-%%d') as birth_date,
+            c.name as campus,
+            d.name as department,
+            co.name as course,
+            ei.year_level,
+            ei.enrollment_status,
+            CONCAT(ay.year_start, '-', ay.year_end) as academic_year,
+            sem.name as semester,
+            DATE_FORMAT(app.submitted_at, '%%Y-%%m-%%d %%H:%%i:%%s') as submitted_at,
+            app.status,
+            e.gwa,
+            e.income,
+            e.score,
+            e.classification,
+            sch.name as scholarship_name,
+            ss.awarded_amount,
+            ss.status as scholarship_status,
+            fb.father_occupation,
+            fb.mother_occupation,
+            fb.household_number,
+            fb.is_4ps_member,
+            fb.ip_affiliation
+        FROM applications app
+        JOIN students s ON app.student_id = s.user_id
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN evaluations e ON app.id = e.application_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        LEFT JOIN family_background fb ON app.student_id = fb.student_id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+        ORDER BY app.submitted_at DESC
+    """
+    export_data = execute_query(export_query, params)
+
+    return jsonify({
+        'data': export_data or [],
+        'filters': filters,
+        'exportedAt': datetime.now().isoformat()
+    })
+
+
+# ============================================================================
+# FILTER OPTIONS ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/filter-options', methods=['GET'])
+def get_filter_options():
+    """Get available filter options dynamically"""
+
+    # Academic Years
+    academic_years_query = """
+                           SELECT DISTINCT CONCAT(year_start, '-', year_end) as value
+                           FROM academic_years
+                           WHERE deleted_at IS NULL
+                           ORDER BY year_start DESC \
+                           """
+    academic_years = execute_query(academic_years_query)
+
+    # Semesters
+    semesters_query = """
+                      SELECT DISTINCT name as value
+                      FROM semesters
+                      WHERE deleted_at IS NULL
+                      ORDER BY
+                          CASE name
+                          WHEN '1st Semester' THEN 1
+                          WHEN '2nd Semester' THEN 2
+                          ELSE 3
+                      END \
+                      """
+    semesters = execute_query(semesters_query)
+
+    # Campuses
+    campuses_query = """
+                     SELECT name as value
+                     FROM campuses
+                     ORDER BY name \
+                     """
+    campuses = execute_query(campuses_query)
+
+    # Departments
+    departments_query = """
+                        SELECT DISTINCT name as value
+                        FROM departments
+                        ORDER BY name \
+                        """
+    departments = execute_query(departments_query)
+
+    # Courses
+    courses_query = """
+                    SELECT DISTINCT name as value
+                    FROM courses
+                    ORDER BY name \
+                    """
+    courses = execute_query(courses_query)
+
+    # Scholarships
+    scholarships_query = """
+                         SELECT name as value
+                         FROM scholarships
+                         WHERE deleted_at IS NULL AND is_active = 1
+                         ORDER BY name \
+                         """
+    scholarships = execute_query(scholarships_query)
+
+    return jsonify({
+        'academicYears': [ay['value'] for ay in (academic_years or [])],
+        'semesters': [s['value'] for s in (semesters or [])],
+        'campuses': [c['value'] for c in (campuses or [])],
+        'departments': [d['value'] for d in (departments or [])],
+        'courses': [c['value'] for c in (courses or [])],
+        'scholarships': [s['value'] for s in (scholarships or [])],
+        'statuses': ['All', 'Pending', 'Approved', 'Denied', 'Evaluated']
+    })
+
+
+# ============================================================================
+# STATISTICS SUMMARY ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/statistics', methods=['GET'])
+def get_statistics():
+    """Get statistical analysis of applications"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+        'campus': request.args.get('campus'),
+        'department': request.args.get('department'),
+        'course': request.args.get('course'),
+        'scholarship': request.args.get('scholarship'),
+        'status': request.args.get('status')
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    # Statistical analysis
+    stats_query = f"""
+        SELECT 
+            COUNT(DISTINCT app.id) as total_applications,
+            COUNT(DISTINCT CASE WHEN app.status = 'approved' THEN app.id END) as approved_count,
+            COUNT(DISTINCT CASE WHEN app.status = 'denied' THEN app.id END) as denied_count,
+            COUNT(DISTINCT CASE WHEN app.status = 'pending' THEN app.id END) as pending_count,
+            AVG(e.gwa) as avg_gwa,
+            MIN(e.gwa) as min_gwa,
+            MAX(e.gwa) as max_gwa,
+            STDDEV(e.gwa) as stddev_gwa,
+            AVG(e.income) as avg_income,
+            MIN(e.income) as min_income,
+            MAX(e.income) as max_income,
+            STDDEV(e.income) as stddev_income,
+            AVG(e.score) as avg_score,
+            MIN(e.score) as min_score,
+            MAX(e.score) as max_score,
+            STDDEV(e.score) as stddev_score,
+            SUM(ss.awarded_amount) as total_awarded_amount,
+            AVG(ss.awarded_amount) as avg_awarded_amount
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN education_info ei ON app.student_id = ei.student_id AND ei.semester_id = app.semester_id
+
+        LEFT JOIN campuses c ON ei.campus_id = c.campus_id
+        LEFT JOIN departments d ON ei.department_id = d.department_id
+        LEFT JOIN courses co ON ei.course_id = co.course_id
+        LEFT JOIN evaluations e ON app.id = e.application_id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        LEFT JOIN scholarships sch ON ss.scholarship_id = sch.id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+    stats = execute_query(stats_query, params, fetch_one=True)
+
+    # Format statistics
+    if stats:
+        return jsonify({
+            'applications': {
+                'total': stats['total_applications'] or 0,
+                'approved': stats['approved_count'] or 0,
+                'denied': stats['denied_count'] or 0,
+                'pending': stats['pending_count'] or 0,
+                'approvalRate': round((stats['approved_count'] or 0) * 100.0 / max(stats['total_applications'] or 1, 1),
+                                      2)
+            },
+            'gwa': {
+                'average': round(stats['avg_gwa'] or 0, 2),
+                'minimum': round(stats['min_gwa'] or 0, 2),
+                'maximum': round(stats['max_gwa'] or 0, 2),
+                'standardDeviation': round(stats['stddev_gwa'] or 0, 2)
+            },
+            'income': {
+                'average': round(stats['avg_income'] or 0, 2),
+                'minimum': round(stats['min_income'] or 0, 2),
+                'maximum': round(stats['max_income'] or 0, 2),
+                'standardDeviation': round(stats['stddev_income'] or 0, 2)
+            },
+            'fuzzyScore': {
+                'average': round(stats['avg_score'] or 0, 4),
+                'minimum': round(stats['min_score'] or 0, 4),
+                'maximum': round(stats['max_score'] or 0, 4),
+                'standardDeviation': round(stats['stddev_score'] or 0, 4)
+            },
+            'awards': {
+                'totalAmount': round(stats['total_awarded_amount'] or 0, 2),
+                'averageAmount': round(stats['avg_awarded_amount'] or 0, 2)
+            }
+        })
+    else:
+        return jsonify({
+            'applications': {'total': 0, 'approved': 0, 'denied': 0, 'pending': 0, 'approvalRate': 0},
+            'gwa': {'average': 0, 'minimum': 0, 'maximum': 0, 'standardDeviation': 0},
+            'income': {'average': 0, 'minimum': 0, 'maximum': 0, 'standardDeviation': 0},
+            'fuzzyScore': {'average': 0, 'minimum': 0, 'maximum': 0, 'standardDeviation': 0},
+            'awards': {'totalAmount': 0, 'averageAmount': 0}
+        })
+
+
+# ============================================================================
+# ERROR HANDLERS
+# ============================================================================
+@reports_bp.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found'}), 404
+
+
+@reports_bp.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
+
+
+@reports_bp.errorhandler(Exception)
+def handle_exception(error):
+    return jsonify({'error': str(error)}), 500
