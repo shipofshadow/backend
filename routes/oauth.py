@@ -7,6 +7,7 @@ from flask_jwt_extended import create_access_token, create_refresh_token
 import urllib.parse
 from config import Config
 from models.user import User
+from routes.auth import refresh_token
 from storage import get_connection
 
 oauth_bp = Blueprint("oauth", __name__, url_prefix="/auth")
@@ -100,7 +101,7 @@ def authorize_facebook():
 
 
 # --- Shared OAuth Handler ---
-def handle_oauth_user(provider, provider_id, email, first_name, last_name, avatar):
+def     handle_oauth_user(provider, provider_id, email, first_name, last_name, avatar):
     """
     Shared function to handle OAuth user authentication for both Google and Facebook
     """
