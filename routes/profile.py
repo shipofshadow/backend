@@ -40,6 +40,26 @@ def get_applications():
     cursor.close()
     return jsonify(applications), 200
 
+@profile_bp.route("/applications/<int:application_id>", methods=["GET"])
+@jwt_required()
+def get_application_by_id(application_id):
+    user_id = get_jwt_identity()
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    # SQL: join with semesters and filter active semester
+    query = f"""
+        {base_applicant_query()}
+        WHERE applications.student_id = %s AND applications.id = %s
+          AND semesters.is_active = 1
+    """
+
+    cursor.execute(query, [user_id, application_id])
+    applications = cursor.fetchone()
+    cursor.close()
+    return jsonify(applications), 200
+
 
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()

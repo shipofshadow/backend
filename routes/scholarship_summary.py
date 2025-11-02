@@ -202,7 +202,7 @@ def get_scholarship_summary(student_id, active_only=False):
         total_awards = sum(len([sel for sel in app["selected_scholarships"] if sel["status"] == "awarded"]) for app in
                            applications_data)
         total_awarded_amount = sum(
-            sum(sel["awarded_amount"] or 0 for sel in app["selected_scholarships"] if sel["status"] == "awarded")
+            sum(sel["awarded_amount"] or 0 for sel in app["selected_scholarships"] if sel["status"] == "awarded" or sel['status'] == 'selected')
             for app in applications_data
         )
 
