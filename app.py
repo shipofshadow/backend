@@ -15,6 +15,7 @@ from routes.applicants import applicants_bp
 from routes.application import application_bp
 from routes.application_draft import application_draft_bp
 from routes.auth import auth_bp
+from routes.backup import backup_bp
 from routes.dashboard import dashboard_bp
 from routes.evaluation import evaluations_bp
 from routes.fuzzy_logic import fuzzy_bp
@@ -88,6 +89,7 @@ app.register_blueprint(notification_bp, strict_slashes=False)
 app.register_blueprint(application_draft_bp, strict_slashes=False)
 app.register_blueprint(oauth_bp)
 app.register_blueprint(reports_bp)
+app.register_blueprint(backup_bp)
 # Swagger
 swagger = Swagger(app)
 
