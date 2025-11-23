@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, send_file
 from functools import wraps
 import subprocess
 import os
+import platform
 import datetime
 import json
 from pathlib import Path
@@ -19,8 +20,12 @@ BACKUP_DIR = Path("backups")
 BACKUP_DIR.mkdir(exist_ok=True)
 UPLOADS_DIR = Path("uploads")
 
-# MySQL paths
-MYSQLDUMP_PATHS = [
+# Detect OS
+IS_WINDOWS = platform.system() == 'Windows'
+IS_LINUX = platform.system() == 'Linux'
+
+# Windows paths for MySQL tools
+WINDOWS_MYSQLDUMP_PATHS = [
     r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe",
     r"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysqldump.exe",
     r"C:\xampp\mysql\bin\mysqldump.exe",
@@ -28,7 +33,7 @@ MYSQLDUMP_PATHS = [
     r"C:\laragon\bin\mysql\mysql-8.0.30-winx64\bin\mysqldump.exe",
 ]
 
-MYSQL_PATHS = [
+WINDOWS_MYSQL_PATHS = [
     r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
     r"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe",
     r"C:\xampp\mysql\bin\mysql.exe",
@@ -36,16 +41,42 @@ MYSQL_PATHS = [
     r"C:\laragon\bin\mysql\mysql-8.0.30-winx64\bin\mysql.exe",
 ]
 
+# Linux paths (usually in PATH, but we can check common locations)
+LINUX_MYSQLDUMP_PATHS = [
+    "/usr/bin/mysqldump",
+    "/usr/local/bin/mysqldump",
+    "/usr/local/mysql/bin/mysqldump",
+]
 
-def find_executable(name, paths_list):
-    """Try to locate executable"""
+LINUX_MYSQL_PATHS = [
+    "/usr/bin/mysql",
+    "/usr/local/bin/mysql",
+    "/usr/local/mysql/bin/mysql",
+]
+
+
+def find_executable(name):
+    """Try to locate executable - cross-platform"""
     import shutil as sh
+
+    # First try system PATH (works on both Windows and Linux)
     exe = sh.which(name)
     if exe:
+        print(f"Found {name} in PATH: {exe}")
         return exe
-    for path in paths_list:
+
+    # Try OS-specific locations
+    if IS_WINDOWS:
+        paths = WINDOWS_MYSQLDUMP_PATHS if 'dump' in name else WINDOWS_MYSQL_PATHS
+    else:
+        paths = LINUX_MYSQLDUMP_PATHS if 'dump' in name else LINUX_MYSQL_PATHS
+
+    for path in paths:
         if os.path.exists(path):
+            print(f"Found {name} at: {path}")
             return path
+
+    print(f"{name} not found")
     return None
 
 
@@ -63,20 +94,25 @@ def get_db_connection():
 
 
 def backup_database_python(output_file):
-    """Pure Python database backup"""
+    """Pure Python database backup - works everywhere"""
+    print(f"Starting Python-based backup to {output_file}")
+
     conn = get_db_connection()
     cursor = conn.cursor()
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(f"-- iScholar Database Backup\n")
         f.write(f"-- Generated: {datetime.datetime.now()}\n")
-        f.write(f"-- Database: {Config.DB_NAME}\n\n")
+        f.write(f"-- Database: {Config.DB_NAME}\n")
+        f.write(f"-- Platform: {platform.system()} {platform.release()}\n\n")
         f.write("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n")
         f.write("SET time_zone = '+00:00';\n")
         f.write("SET FOREIGN_KEY_CHECKS = 0;\n\n")
 
         cursor.execute("SHOW TABLES")
         tables = [row[f'Tables_in_{Config.DB_NAME}'] for row in cursor.fetchall()]
+
+        print(f"Backing up {len(tables)} tables...")
 
         for table in tables:
             f.write(f"\n--\n-- Table structure for table `{table}`\n--\n\n")
@@ -123,11 +159,12 @@ def backup_database_python(output_file):
 
     cursor.close()
     conn.close()
+    print("Python backup completed")
 
 
 def backup_database_mysqldump(output_file):
-    """Backup using mysqldump"""
-    mysqldump_path = find_executable("mysqldump", MYSQLDUMP_PATHS)
+    """Backup using mysqldump - faster for large databases"""
+    mysqldump_path = find_executable("mysqldump")
     if not mysqldump_path:
         raise Exception("mysqldump not found")
 
@@ -145,20 +182,23 @@ def backup_database_mysqldump(output_file):
         Config.DB_NAME
     ]
 
+    print(f"Running mysqldump: {' '.join(cmd[:7])}...")  # Don't log password
     result = subprocess.run(cmd, capture_output=True, text=True)
+
     if result.returncode != 0:
         raise Exception(f"mysqldump failed: {result.stderr}")
 
+    print("mysqldump completed")
+
 
 def restore_database_python(sql_file):
-    """Restore database using Python - IMPROVED VERSION"""
+    """Restore database using Python - cross-platform"""
     print(f"Starting Python-based restore from {sql_file}")
 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Read SQL file
         with open(sql_file, 'r', encoding='utf-8') as f:
             sql_content = f.read()
 
@@ -168,10 +208,8 @@ def restore_database_python(sql_file):
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         cursor.execute("SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO'")
         conn.commit()
-        print("Disabled foreign key checks")
 
-        # Split into statements more reliably
-        # Remove comments first
+        # Remove comments
         lines = []
         for line in sql_content.split('\n'):
             line = line.strip()
@@ -180,7 +218,7 @@ def restore_database_python(sql_file):
 
         clean_sql = ' '.join(lines)
 
-        # Now split by semicolons (simple approach for backup files)
+        # Split into statements
         statements = []
         temp_statement = ""
         in_string = False
@@ -190,7 +228,6 @@ def restore_database_python(sql_file):
         while i < len(clean_sql):
             char = clean_sql[i]
 
-            # Handle string literals
             if char in ('"', "'") and (i == 0 or clean_sql[i - 1] != '\\'):
                 if not in_string:
                     in_string = True
@@ -199,7 +236,6 @@ def restore_database_python(sql_file):
                     in_string = False
                     string_char = None
 
-            # Handle semicolons
             if char == ';' and not in_string:
                 temp_statement += char
                 if temp_statement.strip():
@@ -212,14 +248,13 @@ def restore_database_python(sql_file):
 
         print(f"Split into {len(statements)} SQL statements")
 
-        # Execute statements with better error handling
+        # Execute statements
         successful = 0
         errors = 0
 
         for idx, statement in enumerate(statements):
             statement = statement.strip()
 
-            # Skip empty statements and SET commands we already handled
             if not statement or statement.startswith('SET '):
                 continue
 
@@ -227,7 +262,6 @@ def restore_database_python(sql_file):
                 cursor.execute(statement)
                 successful += 1
 
-                # Commit every 100 statements for better performance
                 if successful % 100 == 0:
                     conn.commit()
                     print(f"Progress: {successful}/{len(statements)} statements executed")
@@ -236,23 +270,19 @@ def restore_database_python(sql_file):
                 errors += 1
                 error_msg = str(e)
 
-                # Only log significant errors
                 if 'already exists' not in error_msg.lower() and \
                         'unknown database' not in error_msg.lower() and \
                         'duplicate key' not in error_msg.lower():
                     print(f"Error in statement {idx}: {error_msg}")
                     print(f"Statement preview: {statement[:100]}...")
 
-                    # For critical errors, stop the restore
                     if 'syntax error' in error_msg.lower():
                         print(f"CRITICAL SYNTAX ERROR - stopping restore")
                         raise
 
-        # Final commit
         conn.commit()
         print(f"Restore complete: {successful} successful, {errors} errors")
 
-        # Re-enable foreign key checks
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
         conn.commit()
 
@@ -273,15 +303,13 @@ def restore_database_python(sql_file):
 
 
 def restore_database_mysql(sql_file):
-    """Restore using mysql command - IMPROVED"""
-    mysql_path = find_executable("mysql", MYSQL_PATHS)
+    """Restore using mysql command - cross-platform"""
+    mysql_path = find_executable("mysql")
     if not mysql_path:
         raise Exception("mysql client not found")
 
     print(f"Using mysql at: {mysql_path}")
-    print(f"Restoring from: {sql_file}")
 
-    # Build command
     cmd = [
         mysql_path,
         f"--host={Config.DB_HOST}",
@@ -293,27 +321,86 @@ def restore_database_mysql(sql_file):
 
     try:
         with open(sql_file, 'r', encoding='utf-8') as f:
+            print(f"Running mysql restore...")
             result = subprocess.run(
                 cmd,
                 stdin=f,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300
             )
 
         if result.returncode != 0:
-            print(f"mysql restore stderr: {result.stderr}")
-            print(f"mysql restore stdout: {result.stdout}")
+            print(f"mysql stderr: {result.stderr}")
             raise Exception(f"Database restore failed: {result.stderr}")
 
         print("MySQL restore completed successfully")
 
     except subprocess.TimeoutExpired:
         raise Exception("Database restore timed out after 5 minutes")
-    except Exception as e:
-        print(f"MySQL restore error: {e}")
-        raise
+
+
+def safe_remove_dir(directory, max_retries=5, delay=0.5):
+    """Safely remove directory - cross-platform"""
+    import gc
+
+    for attempt in range(max_retries):
+        try:
+            if directory.exists():
+                gc.collect()
+
+                # Try to change permissions (works on both Windows and Linux)
+                if IS_LINUX:
+                    # On Linux, use chmod
+                    os.chmod(directory, 0o777)
+                    for root, dirs, files in os.walk(directory):
+                        for d in dirs:
+                            os.chmod(os.path.join(root, d), 0o777)
+                        for f in files:
+                            os.chmod(os.path.join(root, f), 0o777)
+
+                shutil.rmtree(directory, ignore_errors=False)
+            return True
+        except (PermissionError, OSError) as e:
+            if attempt < max_retries - 1:
+                print(f"Retry {attempt + 1}/{max_retries} removing directory: {e}")
+                time.sleep(delay * (attempt + 1))
+                gc.collect()
+            else:
+                print(f"Failed to remove directory after {max_retries} attempts")
+                try:
+                    shutil.rmtree(directory, ignore_errors=True)
+                except:
+                    pass
+                return False
+    return False
+
+
+def safe_remove_file(filepath, max_retries=5, delay=0.5):
+    """Safely remove file - cross-platform"""
+    import gc
+
+    for attempt in range(max_retries):
+        try:
+            if filepath.exists():
+                gc.collect()
+
+                # Try to change permissions
+                if IS_LINUX:
+                    os.chmod(filepath, 0o777)
+
+                filepath.unlink()
+            return True
+        except (PermissionError, OSError) as e:
+            if attempt < max_retries - 1:
+                print(f"Retry {attempt + 1}/{max_retries} removing file: {e}")
+                time.sleep(delay * (attempt + 1))
+                gc.collect()
+            else:
+                print(f"Failed to remove file after {max_retries} attempts")
+                return False
+    return False
 
 
 def admin_required(f):
@@ -321,95 +408,12 @@ def admin_required(f):
 
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Add proper JWT verification here based on your auth system
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
             return jsonify({"success": False, "error": "No token provided"}), 401
-
-        # TODO: Verify token and check if user is admin
-        # For now, just checking token exists
-
         return f(*args, **kwargs)
 
     return decorated
-
-
-def safe_remove_dir(directory, max_retries=5, delay=0.5):
-    """Safely remove directory with retry logic and file handle cleanup"""
-    import gc
-
-    for attempt in range(max_retries):
-        try:
-            if directory.exists():
-                # Force garbage collection to release file handles
-                gc.collect()
-
-                # Try to change permissions first (Windows issue)
-                try:
-                    for root, dirs, files in os.walk(directory):
-                        for d in dirs:
-                            os.chmod(os.path.join(root, d), 0o777)
-                        for f in files:
-                            os.chmod(os.path.join(root, f), 0o777)
-                except Exception:
-                    pass  # Ignore permission errors
-
-                # Now try to remove
-                shutil.rmtree(directory, ignore_errors=False)
-            return True
-        except (PermissionError, OSError) as e:
-            if attempt < max_retries - 1:
-                print(f"Retry {attempt + 1}/{max_retries} removing directory: {e}")
-                time.sleep(delay * (attempt + 1))  # Exponential backoff
-                gc.collect()  # Try to release handles
-            else:
-                print(f"Failed to remove directory after {max_retries} attempts: {e}")
-                # Last resort: try ignore_errors
-                try:
-                    shutil.rmtree(directory, ignore_errors=True)
-                except Exception:
-                    pass
-                return False
-    return False
-
-
-def safe_remove_file(filepath, max_retries=5, delay=0.5):
-    """Safely remove file with retry logic and handle cleanup"""
-    import gc
-
-    for attempt in range(max_retries):
-        try:
-            if filepath.exists():
-                # Force garbage collection
-                gc.collect()
-
-                # Try to change permissions
-                try:
-                    os.chmod(filepath, 0o777)
-                except Exception:
-                    pass
-
-                # Close any open handles (Windows specific)
-                try:
-                    import msvcrt
-                    import ctypes
-                    # Force close any open handles to this file
-                    kernel32 = ctypes.windll.kernel32
-                    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-                except Exception:
-                    pass  # Not on Windows or import failed
-
-                filepath.unlink()
-            return True
-        except (PermissionError, OSError) as e:
-            if attempt < max_retries - 1:
-                print(f"Retry {attempt + 1}/{max_retries} removing file: {e}")
-                time.sleep(delay * (attempt + 1))  # Exponential backoff
-                gc.collect()
-            else:
-                print(f"Failed to remove file after {max_retries} attempts: {e}")
-                return False
-    return False
 
 
 @backup_bp.route('/api/backup/create', methods=['POST'])
@@ -428,9 +432,9 @@ def create_backup():
         backup_path = BACKUP_DIR / backup_name
         backup_path.mkdir(exist_ok=True)
 
-        # Backup Database
         db_backup_file = backup_path / f"{Config.DB_NAME}.sql"
 
+        # Try mysqldump first, fall back to Python
         try:
             backup_database_mysqldump(db_backup_file)
             backup_method = "mysqldump"
@@ -452,6 +456,7 @@ def create_backup():
             "description": description,
             "created_at": datetime.datetime.now().isoformat(),
             "database": Config.DB_NAME,
+            "platform": f"{platform.system()} {platform.release()}",
             "include_files": include_files,
             "backup_method": backup_method,
             "db_size": os.path.getsize(db_backup_file),
@@ -465,7 +470,6 @@ def create_backup():
         # Create ZIP archive
         zip_path = BACKUP_DIR / f"{backup_name}.zip"
 
-        # Ensure any previous file handles are closed
         import gc
         gc.collect()
 
@@ -474,10 +478,7 @@ def create_backup():
                 if file.is_file():
                     zipf.write(file, file.relative_to(backup_path))
 
-        # IMPORTANT: Let the zip file close completely
         time.sleep(0.5)
-
-        # Clean up unzipped backup with retry
         safe_remove_dir(backup_path)
 
         return jsonify({
@@ -491,7 +492,6 @@ def create_backup():
         }), 200
 
     except Exception as e:
-        # Clean up on error
         if backup_path and backup_path.exists():
             safe_remove_dir(backup_path)
         if zip_path and zip_path.exists():
@@ -521,16 +521,13 @@ def list_backups():
             except Exception as e:
                 print(f"Error reading {backup_file}: {e}")
             finally:
-                # CRITICAL: Always close the zip file handle
                 if zip_handle:
                     try:
                         zip_handle.close()
-                    except Exception:
+                    except:
                         pass
 
-        # Force garbage collection to release file handles
         gc.collect()
-
         backups.sort(key=lambda x: x['created_at'], reverse=True)
 
         return jsonify({
@@ -577,6 +574,7 @@ def restore_backup():
         restore_files = data.get('restore_files', True)
 
         print(f"=== RESTORE REQUEST ===")
+        print(f"Platform: {platform.system()} {platform.release()}")
         print(f"Filename: {filename}")
         print(f"Restore files: {restore_files}")
 
@@ -588,107 +586,73 @@ def restore_backup():
         if not backup_path.exists():
             return jsonify({"success": False, "error": "Backup not found"}), 404
 
-        print(f"Backup file exists: {backup_path}")
-        print(f"Backup size: {backup_path.stat().st_size} bytes")
+        print(f"Backup file: {backup_path}")
+        print(f"Size: {backup_path.stat().st_size} bytes")
 
-        # Extract backup to temp directory
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         extract_dir = BACKUP_DIR / f"temp_restore_{timestamp}"
         extract_dir.mkdir(exist_ok=True)
 
         print(f"Extracting to: {extract_dir}")
 
-        # Extract with explicit handle management
         zip_handle = zipfile.ZipFile(backup_path, 'r')
         zip_handle.extractall(extract_dir)
         zip_handle.close()
         zip_handle = None
 
-        print(f"Extraction complete")
-
-        # List extracted files
-        extracted_files = list(extract_dir.rglob('*'))
-        print(f"Extracted {len(extracted_files)} items")
-        for f in extracted_files[:10]:  # Show first 10
-            print(f"  - {f.relative_to(extract_dir)}")
-
-        # Give OS time to release handles
         time.sleep(0.5)
         import gc
         gc.collect()
 
-        # Restore Database
+        # Find SQL file
         sql_file = extract_dir / f"{Config.DB_NAME}.sql"
 
-        # Try alternative SQL file names if default doesn't exist
         if not sql_file.exists():
-            print(f"Default SQL file not found: {sql_file}")
-            # Look for any .sql file
             sql_files = list(extract_dir.glob("*.sql"))
             if sql_files:
                 sql_file = sql_files[0]
-                print(f"Using alternative SQL file: {sql_file}")
+                print(f"Using: {sql_file}")
             else:
-                raise Exception("No SQL backup file found in archive")
+                raise Exception("No SQL backup file found")
 
-        print(f"SQL file: {sql_file}")
-        print(f"SQL file size: {sql_file.stat().st_size} bytes")
+        print(f"SQL file: {sql_file} ({sql_file.stat().st_size} bytes)")
 
-        # Try mysql command first, fall back to Python
+        # Restore database
         restore_method = None
-        restore_error = None
 
         try:
-            print("Attempting MySQL command restore...")
+            print("Attempting mysql restore...")
             restore_database_mysql(sql_file)
             restore_method = "mysql"
-            print("MySQL restore successful!")
         except Exception as e:
-            restore_error = str(e)
-            print(f"MySQL restore failed: {e}")
-            print("Falling back to Python restore method...")
+            print(f"mysql failed: {e}")
+            print("Trying Python restore...")
 
             try:
                 restore_database_python(sql_file)
                 restore_method = "python"
-                print("Python restore successful!")
             except Exception as e2:
-                print(f"Python restore also failed: {e2}")
-                raise Exception(f"All restore methods failed. MySQL: {restore_error}, Python: {str(e2)}")
+                raise Exception(f"All methods failed. MySQL: {str(e)}, Python: {str(e2)}")
 
-        if not restore_method:
-            raise Exception("Restore method not set - this shouldn't happen")
-
-        # Restore files if requested
+        # Restore files
         if restore_files:
             files_backup_dir = extract_dir / "uploads"
             if files_backup_dir.exists():
-                print(f"Restoring files from: {files_backup_dir}")
+                print("Restoring files...")
 
-                # Backup current uploads first
                 if UPLOADS_DIR.exists():
                     backup_current = BACKUP_DIR / f"pre_restore_uploads_{timestamp}"
-                    print(f"Backing up current uploads to: {backup_current}")
                     shutil.copytree(UPLOADS_DIR, backup_current)
-
-                    # Remove current uploads
                     safe_remove_dir(UPLOADS_DIR)
                     time.sleep(0.3)
 
-                # Restore from backup
-                print("Copying files from backup...")
                 shutil.copytree(files_backup_dir, UPLOADS_DIR)
-                print("Files restored successfully")
-            else:
-                print("No uploads directory in backup")
+                print("Files restored")
 
-        # Clean up with retry
-        print("Cleaning up temporary files...")
         time.sleep(0.5)
         safe_remove_dir(extract_dir)
-        print("Cleanup complete")
+        print("=== RESTORE COMPLETE ===")
 
-        print(f"=== RESTORE COMPLETE ===")
         return jsonify({
             "success": True,
             "message": f"Backup restored successfully using {restore_method}",
@@ -701,11 +665,10 @@ def restore_backup():
         import traceback
         traceback.print_exc()
 
-        # Clean up on error
         if zip_handle:
             try:
                 zip_handle.close()
-            except Exception:
+            except:
                 pass
 
         if extract_dir and extract_dir.exists():
@@ -714,8 +677,7 @@ def restore_backup():
 
         return jsonify({
             "success": False,
-            "error": str(e),
-            "details": "Check server logs for more information"
+            "error": str(e)
         }), 500
 
 
@@ -726,7 +688,6 @@ def delete_backup(filename):
     import gc
 
     try:
-        # Validate filename to prevent path traversal
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify({"success": False, "error": "Invalid filename"}), 400
 
@@ -735,41 +696,24 @@ def delete_backup(filename):
         if not backup_path.exists():
             return jsonify({"success": False, "error": "Backup not found"}), 404
 
-        # Ensure it's a zip file
         if not backup_path.suffix == '.zip':
             return jsonify({"success": False, "error": "Invalid backup file"}), 400
 
-        # Force garbage collection before attempting delete
         gc.collect()
-        time.sleep(0.5)  # Give OS time to release handles
+        time.sleep(0.5)
 
-        # Try to delete with retries
         if safe_remove_file(backup_path):
-            # Verify deletion
             time.sleep(0.3)
             if not backup_path.exists():
                 return jsonify({
                     "success": True,
                     "message": "Backup deleted successfully"
                 }), 200
-            else:
-                return jsonify({
-                    "success": False,
-                    "error": "File deletion verification failed"
-                }), 500
-        else:
-            # Check if the file still exists
-            if backup_path.exists():
-                return jsonify({
-                    "success": False,
-                    "error": "Failed to delete backup file. It may be in use by another process."
-                }), 500
-            else:
-                # File doesn't exist anymore (race condition or someone else deleted it)
-                return jsonify({
-                    "success": True,
-                    "message": "Backup deleted successfully"
-                }), 200
+
+        return jsonify({
+            "success": False,
+            "error": "Failed to delete backup"
+        }), 500
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -778,7 +722,7 @@ def delete_backup(filename):
 @backup_bp.route('/api/backup/verify/<filename>', methods=['GET'])
 @admin_required
 def verify_backup(filename):
-    """Verify a backup file's contents and integrity"""
+    """Verify backup integrity"""
     zip_handle = None
 
     try:
@@ -790,32 +734,25 @@ def verify_backup(filename):
         if not backup_path.exists():
             return jsonify({"success": False, "error": "Backup not found"}), 404
 
-        # Open and verify zip
         zip_handle = zipfile.ZipFile(backup_path, 'r')
 
-        # Test zip integrity
         bad_file = zip_handle.testzip()
         if bad_file:
             return jsonify({
                 "success": False,
-                "error": f"Corrupt file in backup: {bad_file}"
+                "error": f"Corrupt file: {bad_file}"
             }), 400
 
-        # Get file list
         files = zip_handle.namelist()
 
-        # Check for metadata
         has_metadata = 'metadata.json' in files
         metadata = None
         if has_metadata:
             with zip_handle.open('metadata.json') as f:
                 metadata = json.load(f)
 
-        # Check for SQL file
         sql_files = [f for f in files if f.endswith('.sql')]
         has_sql = len(sql_files) > 0
-
-        # Check for uploads
         has_uploads = any('uploads/' in f for f in files)
 
         zip_handle.close()
@@ -834,16 +771,8 @@ def verify_backup(filename):
             "is_valid": has_sql and has_metadata
         }), 200
 
-    except zipfile.BadZipFile:
-        return jsonify({
-            "success": False,
-            "error": "Invalid or corrupted zip file"
-        }), 400
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         if zip_handle:
             try:
@@ -854,9 +783,8 @@ def verify_backup(filename):
 
 @backup_bp.route('/api/backup/test-connection', methods=['GET'])
 def test_connection():
-    """Test database connection and restore capabilities"""
+    """Test database connection and tools"""
     try:
-        # Test database connection
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -869,12 +797,17 @@ def test_connection():
         cursor.close()
         conn.close()
 
-        # Check for mysql/mysqldump
-        mysql_path = find_executable("mysql", MYSQL_PATHS)
-        mysqldump_path = find_executable("mysqldump", MYSQLDUMP_PATHS)
+        mysql_path = find_executable("mysql")
+        mysqldump_path = find_executable("mysqldump")
 
         return jsonify({
             "success": True,
+            "platform": {
+                "system": platform.system(),
+                "release": platform.release(),
+                "machine": platform.machine(),
+                "python": platform.python_version()
+            },
             "database": {
                 "connected": True,
                 "version": db_version,
