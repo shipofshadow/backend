@@ -25,11 +25,16 @@ class AuthService:
                     return error("Invalid username or password."), 401
 
                 user = User(data)
-                if not verify_password(password, user.password):
-                    return error("Invalid username or password."), 401
-                
+
+                if user.password is None:
+                    return error("This account has no password. Please use Google login or reset your password."), 403
+
                 if user.is_active == 0:
                     return error("Account is inactive. Please activate your account."), 403
+
+                if not verify_password(password, user.password):
+                    return error("Invalid username or password."), 401
+
 
                 # JWT tokens
                 claims = {"role": user.role, "username": user.username}
@@ -58,18 +63,18 @@ class AuthService:
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
-                
+
                 # Student ID check
                 cursor.execute(
-                    "SELECT id FROM students WHERE student_id = %s AND deleted_at IS NULL", 
+                    "SELECT id FROM students WHERE student_id = %s AND deleted_at IS NULL",
                     (data["student_id"],)
                 )
                 if cursor.fetchone():
                     return error("The student ID is already in use."), 409
-                
+
                 # Username check
                 cursor.execute(
-                    "SELECT id FROM users WHERE username = %s AND deleted_at IS NULL", 
+                    "SELECT id FROM users WHERE username = %s AND deleted_at IS NULL",
                     (data["username"],)
                 )
                 if cursor.fetchone():
@@ -77,7 +82,7 @@ class AuthService:
 
                 # Email check
                 cursor.execute(
-                    "SELECT id FROM students WHERE email = %s AND deleted_at IS NULL", 
+                    "SELECT id FROM students WHERE email = %s AND deleted_at IS NULL",
                     (data["email"],)
                 )
                 if cursor.fetchone():
@@ -119,7 +124,7 @@ class AuthService:
                 ))
 
             connection.commit()
-            
+
             if activation_required:
                 context = {
                     "student_name": data.get("first_name", "") + " " + data.get("last_name", ""),

@@ -27,9 +27,13 @@ from routes.profile import profile_bp
 from routes.s_reports import reports_bp
 from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
+from routes.users import users_bp
 from utils.applications import email_exists
 from utils.response import error
+from werkzeug.routing import BaseConverter
 
+class SignedIntConverter(BaseConverter):
+    regex = r'-?\d+'
 app = Flask(__name__)
 cache = Cache()
 
@@ -70,6 +74,7 @@ CORS(app, supports_credentials=True, resources={r"/*": {"origins": [
 
 mail = Mail(app)
 
+app.url_map.converters['signed_int'] = SignedIntConverter
 
 # Blueprints
 app.register_blueprint(meta_bp)
@@ -90,9 +95,9 @@ app.register_blueprint(application_draft_bp, strict_slashes=False)
 app.register_blueprint(oauth_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(backup_bp)
+app.register_blueprint(users_bp, strict_slashes=False)
 # Swagger
 swagger = Swagger(app)
-
 # Routes
 @app.errorhandler(404)
 def not_found(er):

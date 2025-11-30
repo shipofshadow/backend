@@ -65,26 +65,27 @@ def save_application(db, user_id, application):
                 municipality_name=%s,
                 barangay_code=%s,
                 barangay_name=%s,
+                zip_code=%s,
                 updated_at=CURRENT_TIMESTAMP
             WHERE student_id = %s
         """, (
             application.street, application.region_code, application.region_name,
             application.province_code, application.province_name,
             application.municipality_code, application.municipality_name,
-            application.barangay_code, application.barangay_name,
+            application.barangay_code, application.barangay_name, application.zip_code,
             user_id
         ))
     else:
         cursor.execute("""
             INSERT INTO addresses (student_id, street, region_code, region_name,
                                    province_code, province_name, municipality_code, municipality_name,
-                                   barangay_code, barangay_name)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                   barangay_code, barangay_name, zip_code)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             user_id, application.street, application.region_code, application.region_name,
             application.province_code, application.province_name,
             application.municipality_code, application.municipality_name,
-            application.barangay_code, application.barangay_name
+            application.barangay_code, application.barangay_name, application.zip_code
         ))
 
     # Update or insert family background

@@ -17,7 +17,9 @@ profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 @jwt_required()
 def scholarship_summary():
     student_id = get_jwt_identity()
-    return get_scholarship_summary(student_id, active_only=True)
+    active_only_param = request.args.get("active_only", "false").lower()
+    active_only = active_only_param in ["true", "1", "yes"]
+    return get_scholarship_summary(student_id, active_only=active_only)
 
 
 @profile_bp.route("/applications", methods=["GET"])
@@ -108,6 +110,12 @@ def get_user_data():
 
 @profile_bp.route('/avatar/<path:filename>', methods=['GET'])
 def get_avatar(filename):
+    # Remove any leading 'uploads/' or 'uploads\' to be safe
+    if filename.startswith("uploads/"):
+        filename = filename[len("uploads/"):]
+    elif filename.startswith("uploads\\"):
+        filename = filename[len("uploads\\"):]
+
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 

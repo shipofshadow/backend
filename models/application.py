@@ -22,6 +22,7 @@ class Application:
         self.municipality_name = data.get("municipalityName")
         self.barangay_code = data.get("barangayCode")
         self.barangay_name = data.get("barangayName")
+        self.zip_code = data.get("zipCode")
 
         # Parental Info
         self.father_last_name = data.get("father", {}).get("lastName")
