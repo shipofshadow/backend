@@ -148,7 +148,7 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
     if isinstance(file_or_url, str):
         # It's a URL - download the image
         try:
-            response = requests.get(file_or_url, timeout=10)
+            response = requests.get(file_or_url, timeout=10, verify=True)
             response.raise_for_status()
 
             # Determine file extension from content type or URL
@@ -170,8 +170,11 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
             with open(path, 'wb') as f:
                 f.write(response.content)
 
+        except requests.RequestException as e:
+            print(f"Error downloading avatar from URL '{file_or_url}': {e} (status: {getattr(e.response, 'status_code', 'N/A') if hasattr(e, 'response') else 'N/A'})")
+            return None
         except Exception as e:
-            print(f"Error downloading avatar from URL: {e}")
+            print(f"Unexpected error downloading avatar from URL '{file_or_url}': {e}")
             return None
     else:
         # It's a file upload
@@ -209,7 +212,7 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
         elif ext == '.png':
             img.save(path, "PNG", optimize=True)
     except Exception as e:
-        print(f"Error optimizing avatar image: {e}")
+        print(f"Error optimizing avatar image at '{path}' (format: {ext}): {e}")
 
     # Check storage provider and save accordingly
     if storage_provider == 's3':

@@ -49,6 +49,8 @@ def update_settings():
 
 
 @settings_bp.route('/<config_name>', methods=['GET'])
+@jwt_required()
+@admin_required
 def get_single_setting(config_name):
     """
     Get a single setting value.
