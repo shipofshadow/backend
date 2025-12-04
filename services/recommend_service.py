@@ -406,3 +406,4 @@ class RecommendationService:
 
         # Return average fit score, or neutral if no preferences
         return fit_score / fit_count if fit_count > 0 else 0.5
+

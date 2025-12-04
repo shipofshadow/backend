@@ -348,40 +348,6 @@ def get_evaluation_result(application_id):
 @jwt_required()
 def recommend(application_id):
 
-    """
-    Generate scholarship recommendations for an application
-    ---
-    tags:
-      - Recommendations
-    parameters:
-      - name: application_id
-        in: path
-        type: integer
-        required: true
-        description: ID of the application
-    responses:
-      200:
-        description: List of recommended scholarships
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              scholarship_id:
-                type: integer
-              scholarship_name:
-                type: string
-              priority_met:
-                type: boolean
-              score:
-                type: number
-      400:
-        description: Application must be evaluated first
-      404:
-        description: Application not found
-      500:
-        description: Internal server error
-    """
     try:
         connection = get_connection()
         cursor = connection.cursor()

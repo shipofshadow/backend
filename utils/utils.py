@@ -142,14 +142,18 @@ def safe_json_parse(config_str: str, default: Dict = None) -> Dict:
         print(f"Error parsing JSON config: {e}")
         return default or SCHOLARSHIP_CONFIG.copy()
 
-def extract_applicant_flags(applicant: Dict) -> Dict[str, Any]:
+def extract_applicant_flags(applicant: Dict, prequalify = False) -> Dict[str, Any]:
     """Extract and process applicant flags and data"""
     flags = smart_detect_flags(
         applicant.get("father_occupation", ""),
         applicant.get("mother_occupation", ""),
     )
 
-    total_income = (applicant.get("father_income") or 0) + (applicant.get("mother_income") or 0)
+
+    if not prequalify:
+        total_income = (applicant.get("father_income") or 0) + (applicant.get("mother_income") or 0)
+    else:
+        total_income = applicant.get("income", 0)
 
     return {
         "is_ofw": flags["is_ofw"],

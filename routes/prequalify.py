@@ -18,7 +18,7 @@ def calculate_prequalification():
         connection = get_connection()
         cursor = connection.cursor()
 
-        result = compute_prequalification(data, cursor)
+        result = recommend(data, cursor)
 
         return jsonify({
             "success": True,
@@ -48,6 +48,8 @@ def bulk_prequalify():
 
         s = data
 
+        result = recommend(s, cursor)
+
         cursor.execute("""
             INSERT INTO prequalification_students (
                 student_id, name, course, year_level, gwa, family_income,
@@ -76,8 +78,6 @@ def bulk_prequalify():
             s.get("father_occupation"), s.get("mother_occupation"), s.get("total_units")
         ))
 
-        result = compute_prequalification(s, cursor)
-
         cursor.execute("""
             INSERT INTO prequalifications 
                 (student_id, eligibility_score, classification, has_missing_data, missing_fields)
@@ -95,8 +95,6 @@ def bulk_prequalify():
             len(result["missing_fields"]) > 0,
             ", ".join(result["missing_fields"]) if result["missing_fields"] else None
         ))
-
-
 
         connection.commit()
 
@@ -120,7 +118,7 @@ def bulk_prequalify():
         connection.close()
 
 
-def compute_prequalification(data, cursor=None):
+def recommend(data, cursor=None):
     """
     Shared helper for evaluating a student's prequalification.
     Accepts a dict (data) and an optional cursor for DB access.
@@ -139,7 +137,7 @@ def compute_prequalification(data, cursor=None):
     score = result["score"] * 100
 
     evaluation_data = {
-        "score": score,
+        "score": result["score"],
         "classification": result["classification"],
         "gwa": gwa,
         "income": income,
@@ -150,6 +148,7 @@ def compute_prequalification(data, cursor=None):
     if cursor:
         recommend_obj = RecommendationService(cursor)
         recommendations = recommend_obj.recommend(applicant_data, evaluation_data)
+
 
     return {
         "score": score,
