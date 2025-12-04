@@ -3,10 +3,13 @@ import os
 import re
 import uuid
 import subprocess
+import requests
 from decimal import Decimal, InvalidOperation
-from typing import Dict, Any
+from typing import Dict, Any, Union
+from io import BytesIO
 
 from werkzeug.utils import secure_filename
+from werkzeug.datastructures import FileStorage
 from PIL import Image
 from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG, Config
 from storage import s3_client
@@ -104,12 +107,124 @@ def save_file(file, user_id, file_type):
     return filename  # Returns local filename
 
 def generate_avatar(name):
+    """Generate an initials-based avatar and save based on storage provider setting."""
+    from services.settings_service import get_storage_provider
+
     img = create_initials_avatar(name)
     unique_id = uuid.uuid4().hex
     filename = f"avatar_{unique_id}.png"
     path = os.path.join(UPLOAD_FOLDER, filename)
     img.save(path)
-    return path
+
+    storage_provider = get_storage_provider()
+
+    if storage_provider == 's3':
+        # Upload to S3
+        stored_key = upload_to_s3(path, filename)
+        # Clean up local file
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return stored_key  # Returns "uploads/avatar_xxx.png"
+
+    return filename  # Returns local filename
+
+
+def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
+    """
+    Smart avatar save function that:
+    - Checks the storageProvider setting from the database
+    - Handles both file uploads and URL downloads (for Google avatars)
+    - Saves to appropriate storage (S3 or local)
+    - Returns the stored path/key
+    """
+    from services.settings_service import get_storage_provider
+
+    unique_id = uuid.uuid4().hex
+    storage_provider = get_storage_provider()
+
+    # Determine if we have a file or URL
+    if isinstance(file_or_url, str):
+        # It's a URL - download the image
+        try:
+            response = requests.get(file_or_url, timeout=10)
+            response.raise_for_status()
+
+            # Determine file extension from content type or URL
+            content_type = response.headers.get('Content-Type', '')
+            if 'jpeg' in content_type or 'jpg' in content_type:
+                ext = '.jpg'
+            elif 'png' in content_type:
+                ext = '.png'
+            elif 'gif' in content_type:
+                ext = '.gif'
+            else:
+                # Try to get from URL
+                ext = '.jpg'  # Default to jpg
+
+            filename = f"avatar_{user_id}_{unique_id}{ext}"
+            path = os.path.join(UPLOAD_FOLDER, filename)
+
+            # Save locally first
+            with open(path, 'wb') as f:
+                f.write(response.content)
+
+        except Exception as e:
+            print(f"Error downloading avatar from URL: {e}")
+            return None
+    else:
+        # It's a file upload
+        _, ext = os.path.splitext(secure_filename(file_or_url.filename))
+        ext = ext.lower()
+        if not ext:
+            ext = '.png'
+
+        filename = f"avatar_{user_id}_{unique_id}{ext}"
+        path = os.path.join(UPLOAD_FOLDER, filename)
+
+        # Save locally first
+        file_or_url.save(path)
+
+    # Optimize image
+    try:
+        img = Image.open(path)
+        # Convert to RGB if necessary (for RGBA images)
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+            ext = '.jpg'
+            new_filename = f"avatar_{user_id}_{unique_id}{ext}"
+            new_path = os.path.join(UPLOAD_FOLDER, new_filename)
+            img.save(new_path, "JPEG", optimize=True, quality=85)
+            # Remove old file if different
+            if path != new_path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            path = new_path
+            filename = new_filename
+        elif ext in ['.jpg', '.jpeg']:
+            img.save(path, "JPEG", optimize=True, quality=85)
+        elif ext == '.png':
+            img.save(path, "PNG", optimize=True)
+    except Exception as e:
+        print(f"Error optimizing avatar image: {e}")
+
+    # Check storage provider and save accordingly
+    if storage_provider == 's3':
+        # Upload to S3
+        stored_key = upload_to_s3(path, filename)
+
+        # Clean up local file
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+        return stored_key  # Returns "uploads/avatar_xxx.jpg"
+
+    return filename  # Returns local filename
 
 def smart_detect_flags(*texts):
     """Scans multiple text fields for common keywords indicating eligibility flags."""

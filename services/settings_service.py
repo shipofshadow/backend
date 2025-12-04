@@ -78,6 +78,48 @@ def get_system_setting(key):
     return all_settings.get(key)
 
 
+# Alias for get_system_setting
+def get_setting(config_name):
+    """
+    Get a single setting value by config_name.
+    """
+    return get_system_setting(config_name)
+
+
+def update_system_setting(config_name, config_value):
+    """
+    Update a single setting (upsert).
+    """
+    db = get_connection()
+    cursor = db.cursor()
+    try:
+        # Convert booleans to 1/0 for DB storage consistency
+        if isinstance(config_value, bool):
+            db_value = '1' if config_value else '0'
+        else:
+            db_value = str(config_value)
+
+        sql = """
+              INSERT INTO configs (config_name, config_value, created_at, updated_at)
+              VALUES (%s, %s, NOW(), NOW())
+              ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = NOW()
+              """
+        cursor.execute(sql, (config_name, db_value))
+        db.commit()
+
+        # Invalidate cache
+        redis_client.delete(ALL_SETTINGS_CACHE_KEY)
+
+        return True
+    except Exception as e:
+        print(f"Error updating setting {config_name}: {e}")
+        db.rollback()
+        return False
+    finally:
+        cursor.close()
+        db.close()
+
+
 def bulk_update_system_settings(settings_dict):
     """
     Update multiple settings at once.
@@ -118,3 +160,10 @@ def bulk_update_system_settings(settings_dict):
     finally:
         cursor.close()
         db.close()
+
+
+def get_storage_provider():
+    """
+    Helper to get the current storage provider setting ('local' or 's3').
+    """
+    return get_system_setting('storageProvider') or 'local'

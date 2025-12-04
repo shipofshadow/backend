@@ -9,6 +9,7 @@ from config import Config
 from models.user import User
 from routes.auth import refresh_token
 from storage import get_connection
+from utils.utils import save_avatar
 
 oauth_bp = Blueprint("oauth", __name__, url_prefix="/auth")
 
@@ -208,6 +209,15 @@ def     handle_oauth_user(provider, provider_id, email, first_name, last_name, a
     cursor.close()
     connection.close()
 
+    # Save avatar using storage-aware system if URL provided
+    saved_avatar = None
+    if avatar:
+        try:
+            saved_avatar = save_avatar(avatar, str(user_id))
+        except Exception as e:
+            print(f"Error saving OAuth avatar: {e}")
+            saved_avatar = None
+
     # Issue JWT tokens
     claims = {"role": user.role, "username": user.username}
     access_token = create_access_token(identity=str(user_id), additional_claims=claims)
@@ -221,7 +231,7 @@ def     handle_oauth_user(provider, provider_id, email, first_name, last_name, a
         "email": email or "",
         "first_name": first_name or "",
         "last_name": last_name or "",
-        "avatar": avatar or "",
+        "avatar": saved_avatar or avatar or "",
         "user": json.dumps(user.to_dict()),
     }
 

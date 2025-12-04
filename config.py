@@ -62,3 +62,27 @@ SCHOLARSHIP_CONFIG = {
     "max_units_enrolled": None,
     "priority": []
 }
+
+DEFAULT_SYSTEM_SETTINGS = {
+    "emailActivationEnabled": True,
+    "systemName": "iScholarship Portal",
+    "organizationName": "ISPSC - Scholarship Unit",
+    "supportEmail": "",
+    "supportPhone": "",
+    "isApplicationOpen": True,
+    "allowNewRegistrations": True,
+    "applicationStartDate": "",
+    "applicationEndDate": "",
+    "enableEmailAlerts": True,
+    "enableInAppNotifications": True,
+    "emailSenderName": "iScholarship",
+    "maintenanceMode": False,
+    "sessionTimeout": 30,
+    "maxLoginAttempts": 5,
+    "enableNativeLogin": True,
+    "enableGoogleLogin": True,
+    "minPasswordLength": 8,
+    "logRetentionDays": 90,
+    "cleanupIntervalHours": 24,
+    "storageProvider": "local",
+}

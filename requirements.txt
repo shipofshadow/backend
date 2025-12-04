@@ -5,6 +5,7 @@ Authlib
 BareNecessities
 bidict
 blinker
+boto3
 cachelib
 cachetools
 certifi
