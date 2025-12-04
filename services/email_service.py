@@ -1,6 +1,7 @@
 from flask import render_template
 from extensions import mail
 from flask_mail import Message
+from config import Config
 
 def send_activation_email(to_email, context):
     msg = Message(
@@ -34,6 +35,9 @@ def send_eligibility_notification_email(to_email, context):
             - classification: Classification (Eligible, Conditionally Eligible, etc.)
             - recommended_scholarships: List of recommended scholarships
     """
+    # Add app_url to context for configurable links
+    context["app_url"] = Config.APP_URL or "https://ischolar.xyz"
+    
     msg = Message(
         subject="🎓 iScholar - You're Eligible for Scholarships!",
         recipients=[to_email]

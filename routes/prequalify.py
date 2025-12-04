@@ -298,8 +298,6 @@ def send_eligibility_emails():
 
 def get_student_recommendations(student_data, cursor, scholarship_id=None):
     """Get scholarship recommendations for a student"""
-    from utils.utils import extract_applicant_flags
-    
     applicant_data = extract_applicant_flags(student_data)
     
     evaluation_data = {
