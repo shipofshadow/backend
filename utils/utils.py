@@ -140,12 +140,42 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
     - Returns the stored path/key
     """
     from services.settings_service import get_storage_provider
+    from urllib.parse import urlparse
 
     unique_id = uuid.uuid4().hex
     storage_provider = get_storage_provider()
 
     # Determine if we have a file or URL
     if isinstance(file_or_url, str):
+        # Validate URL to prevent SSRF attacks
+        # Only allow HTTPS URLs from trusted domains for avatar images
+        try:
+            parsed_url = urlparse(file_or_url)
+            if parsed_url.scheme != 'https':
+                print(f"Rejected avatar URL - not HTTPS: {file_or_url}")
+                return None
+
+            # Allow list of trusted domains for avatar images
+            trusted_domains = [
+                'googleusercontent.com',
+                'google.com',
+                'facebook.com',
+                'fbcdn.net',
+                'fbsbx.com',
+                'graph.facebook.com',
+            ]
+
+            # Check if the host ends with any trusted domain
+            host = parsed_url.netloc.lower()
+            is_trusted = any(host == domain or host.endswith('.' + domain) for domain in trusted_domains)
+
+            if not is_trusted:
+                print(f"Rejected avatar URL - untrusted domain: {host}")
+                return None
+        except Exception as e:
+            print(f"Error validating avatar URL: {e}")
+            return None
+
         # It's a URL - download the image
         try:
             response = requests.get(file_or_url, timeout=10, verify=True)
