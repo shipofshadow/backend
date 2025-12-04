@@ -63,7 +63,7 @@ def bulk_prequalify():
                 course=VALUES(course),
                 year_level=VALUES(year_level),
                 gwa=VALUES(gwa),
-                family_income=VALUES(income),
+                family_income=VALUES(family_income),
                 is_4ps_member=VALUES(is_4ps_member),
                 ip_affiliation=VALUES(ip_affiliation),
                 is_pwd=VALUES(is_pwd),
