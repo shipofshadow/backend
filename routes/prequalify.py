@@ -63,7 +63,7 @@ def bulk_prequalify():
                 course=VALUES(course),
                 year_level=VALUES(year_level),
                 gwa=VALUES(gwa),
-                family_income=VALUES(family_income),
+                family_income=VALUES(income),
                 is_4ps_member=VALUES(is_4ps_member),
                 ip_affiliation=VALUES(ip_affiliation),
                 is_pwd=VALUES(is_pwd),
@@ -73,7 +73,7 @@ def bulk_prequalify():
                 total_units=VALUES(total_units)
         """, (
             s.get("student_id"), s.get("name"), s.get("course"), s.get("year_level"),
-            s.get("gwa"), s.get("family_income"), s.get("is_4ps_member"),
+            s.get("gwa"), s.get("income"), s.get("is_4ps_member"),
             s.get("ip_affiliation"), s.get("is_pwd"), s.get("siblings_in_college"),
             s.get("father_occupation"), s.get("mother_occupation"), s.get("total_units")
         ))
