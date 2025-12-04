@@ -8,23 +8,64 @@ from typing import Dict, Any
 
 from werkzeug.utils import secure_filename
 from PIL import Image
-from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG
+from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG, Config
+from storage import s3_client
 from .avatar_generator import create_initials_avatar
 
 
 def allowed_file(filename):
-    return (
-        '.' in filename
-        and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-    )
+    return '.' in filename and \
+        filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def generate_avatar(name):
-    img = create_initials_avatar(name)
-    unique_id = uuid.uuid4().hex
-    filename = f"avatar_{unique_id}.png"
-    path = os.path.join(UPLOAD_FOLDER, filename)
-    img.save(path)
-    return path
+
+def get_s3_key(filename):
+    """Ensure consistency in naming keys (e.g., adds uploads/ prefix if missing)"""
+    if filename.startswith("uploads/"):
+        return filename
+    return f"uploads/{filename}"
+
+
+def generate_presigned_url(filename, expiration=3600):
+    """Generates a temporary public URL for a private S3 file."""
+    try:
+        key = get_s3_key(filename)
+        url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': Config.S3_BUCKET, 'Key': key},
+            ExpiresIn=expiration
+        )
+        return url
+    except Exception as e:
+        print(f"Error generating presigned URL: {e}")
+        return None
+
+
+def upload_to_s3(local_path, filename, content_type=None):
+    """Uploads to Private S3 Bucket"""
+    try:
+        bucket = Config.S3_BUCKET
+        key = get_s3_key(filename)
+
+        # Determine content type
+        if not content_type:
+            import mimetypes
+            content_type, _ = mimetypes.guess_type(local_path)
+
+        extra_args = {}
+        if content_type:
+            extra_args['ContentType'] = content_type
+
+        # REMOVED: ExtraArgs={'ACL': 'public-read'} (Because bucket is private)
+
+        s3_client.upload_file(local_path, bucket, key, ExtraArgs=extra_args)
+
+        # Return the KEY (path), not the URL. The URL is generated on demand.
+        return key
+
+    except Exception as e:
+        print(f"S3 Upload Error: {e}")
+        return None
+
 
 def save_file(file, user_id, file_type):
     _, ext = os.path.splitext(secure_filename(file.filename))
@@ -33,10 +74,10 @@ def save_file(file, user_id, file_type):
     filename = f"{user_id}_{file_type}_{unique_id}{ext}"
     path = os.path.join(UPLOAD_FOLDER, filename)
 
-    # Save original file first
+    # 1. Save locally first (needed for processing)
     file.save(path)
 
-    # IMAGE COMPRESSION
+    # 2. Optimize Images
     if ext in [".jpg", ".jpeg", ".png"]:
         try:
             img = Image.open(path)
@@ -44,12 +85,31 @@ def save_file(file, user_id, file_type):
                 img.save(path, "JPEG", optimize=True, quality=70)
             elif ext == ".png":
                 img.save(path, "PNG", optimize=True)
-        except Exception as e:
-            # fallback: already saved
+        except Exception:
             pass
 
-    return path
+    # 3. Check Storage Provider
+    if getattr(Config, 'STORAGE_PROVIDER', 's3') == 's3':
+        # Upload to Private S3
+        stored_key = upload_to_s3(path, filename)
 
+        # Clean up local file
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+        return stored_key  # Returns "uploads/user_type_uuid.jpg"
+
+    return filename  # Returns local filename
+
+def generate_avatar(name):
+    img = create_initials_avatar(name)
+    unique_id = uuid.uuid4().hex
+    filename = f"avatar_{unique_id}.png"
+    path = os.path.join(UPLOAD_FOLDER, filename)
+    img.save(path)
+    return path
 
 def smart_detect_flags(*texts):
     """Scans multiple text fields for common keywords indicating eligibility flags."""

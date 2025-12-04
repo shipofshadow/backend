@@ -28,8 +28,8 @@ from routes.profile import profile_bp
 from routes.s_reports import reports_bp
 from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
+from routes.settings import settings_bp
 from routes.users import users_bp
-from utils.applications import email_exists
 from utils.response import error
 from werkzeug.routing import BaseConverter
 
@@ -98,6 +98,7 @@ app.register_blueprint(reports_bp)
 app.register_blueprint(backup_bp)
 app.register_blueprint(users_bp, strict_slashes=False)
 app.register_blueprint(announcement_bp)
+app.register_blueprint(settings_bp)
 # Swagger
 swagger = Swagger(app)
 # Routes

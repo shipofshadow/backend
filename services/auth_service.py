@@ -7,7 +7,7 @@ from config import Config
 from models.user import User
 from services.email_service import send_activation_email, send_password_reset_email
 from storage import get_connection, redis_client
-from utils.config import email_activation_enabled
+from utils.configuration import email_activation_enabled
 from utils.hashing import hash_password, verify_password
 from utils.response import success, error
 from utils.utils import generate_avatar
@@ -63,6 +63,8 @@ class AuthService:
         connection = get_connection()
         try:
             with connection.cursor() as cursor:
+
+
 
                 # Student ID check
                 cursor.execute(

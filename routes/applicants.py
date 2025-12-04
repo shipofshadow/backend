@@ -1,36 +1,41 @@
+import os
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, request, Blueprint, send_from_directory
+from flask import Flask, jsonify, request, Blueprint, send_from_directory, redirect, abort
 from flask_jwt_extended import jwt_required
 
+from config import Config
 from services.notification_service import create_notification, notify_student_application_status
 from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from utils.applications import get_application
 from utils.decorator import admin_required
+from utils.utils import generate_presigned_url
 
 applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
+
 
 @applicants_bp.route('/files/<path:filename>', methods=['GET'])
 def get_uploaded_file(filename):
     """
-    Download an uploaded file by filename.
-    ---
-    tags:
-      - Applicants
-    parameters:
-      - in: path
-        name: filename
-        type: string
-        required: true
-    responses:
-      200:
-        description: File downloaded successfully
+    Smart File Retrieval:
+    1. Checks if file exists LOCALLY. If yes, serves it.
+    2. If missing locally, generates an S3 Presigned URL.
     """
-    return send_from_directory(UPLOAD_FOLDER, filename)
 
+    safe_filename = os.path.basename(filename)
+    local_path = os.path.join(UPLOAD_FOLDER, safe_filename)
 
+    if os.path.exists(local_path):
+        return send_from_directory(UPLOAD_FOLDER, safe_filename)
+
+    secure_url = generate_presigned_url(filename)
+
+    if secure_url:
+        return redirect(secure_url)
+
+    return abort(404, description="File not found in storage")
 def fetch_applicants_by_status(status: str):
     db = get_connection()
     cursor = db.cursor()
