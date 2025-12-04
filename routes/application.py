@@ -1,3 +1,5 @@
+import json
+
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
@@ -5,7 +7,7 @@ import traceback
 from services.notification_service import notify_admin, notify_admin_new_application, notify_student_application_status
 from storage import get_connection
 from models.application import Application
-from services.application_service import save_application, insert_grades
+from services.application_service import save_application, insert_grades, update_application_data
 from services.admin.manage_periods import get_active_period
 from utils.students import fetch_student_info
 from utils.utils import allowed_file, save_file
@@ -185,3 +187,50 @@ def check_application_status():
 
     except Exception as e:
         return jsonify({"error": "Could not check application status"}), 500
+
+
+@application_bp.route("/update/<int:application_id>", methods=["PUT"])
+@jwt_required()
+def update_application_route(application_id):
+    try:
+        user_id = get_jwt_identity()
+
+        # 1. Parse Data (handles nested keys like father[lastName])
+        data = parse_form_data(request.form)
+
+        # 2. Handle Files
+        if "itr" in request.files:
+            itr_file = request.files["itr"]
+            if allowed_file(itr_file.filename):
+                data["itr"] = save_file(itr_file, user_id, "itr")
+
+        if "grades" in request.files:
+            grades_file = request.files["grades"]
+            if allowed_file(grades_file.filename):
+                data["grades"] = save_file(grades_file, user_id, "grades")
+
+        # 3. Handle Grades List safely
+        if "gradesList" in request.form:
+            try:
+                data["grades_list"] = json.loads(request.form["gradesList"])
+            except json.JSONDecodeError:
+                data["grades_list"] = []
+
+        # 4. Create Application Object
+        # This maps the dictionary to the object properties
+        application = Application(data)
+
+        # 5. Update
+        db = get_connection()
+        success = update_application_data(db, user_id, application_id, application, data)
+
+        if success:
+            db.commit()
+            return jsonify({"message": "Application updated successfully"}), 200
+        else:
+            db.rollback()
+            return jsonify({"error": "Failed to update application or unauthorized"}), 400
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500

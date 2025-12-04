@@ -11,6 +11,7 @@ from config import Config
 from extensions import jwt, socketio
 from routes.academic import campus_bp
 from routes.academic_period import academic_period_bp
+from routes.announcement import announcement_bp
 from routes.applicants import applicants_bp
 from routes.application import application_bp
 from routes.application_draft import application_draft_bp
@@ -96,6 +97,7 @@ app.register_blueprint(oauth_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(backup_bp)
 app.register_blueprint(users_bp, strict_slashes=False)
+app.register_blueprint(announcement_bp)
 # Swagger
 swagger = Swagger(app)
 # Routes

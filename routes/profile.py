@@ -8,7 +8,7 @@ from utils.hashing import hash_password, verify_password
 from config import UPLOAD_FOLDER
 from routes.scholarship_summary import get_scholarship_summary
 from storage import get_connection
-from services.application_service import base_applicant_query
+from services.application_service import base_applicant_query, fetch_grades_by_application_id
 from utils.response import error
 
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
@@ -42,6 +42,7 @@ def get_applications():
     cursor.close()
     return jsonify(applications), 200
 
+
 @profile_bp.route("/applications/<int:application_id>", methods=["GET"])
 @jwt_required()
 def get_application_by_id(application_id):
@@ -50,7 +51,6 @@ def get_application_by_id(application_id):
     connection = get_connection()
     cursor = connection.cursor()
 
-    # SQL: join with semesters and filter active semester
     query = f"""
         {base_applicant_query()}
         WHERE applications.student_id = %s AND applications.id = %s
@@ -58,11 +58,17 @@ def get_application_by_id(application_id):
     """
 
     cursor.execute(query, [user_id, application_id])
-    applications = cursor.fetchone()
+    application = cursor.fetchone()
+    if not application:
+        cursor.close()
+        return jsonify({"error": "Application not found"}), 404
+
+    grades = fetch_grades_by_application_id(cursor, application_id)
+
+    application['grades'] = grades
+
     cursor.close()
-    return jsonify(applications), 200
-
-
+    return jsonify(application), 200
 @profile_bp.route('/me', methods=['GET'])
 @jwt_required()
 def get_user_data():

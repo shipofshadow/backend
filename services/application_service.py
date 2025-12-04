@@ -268,3 +268,130 @@ def fetch_grades_by_application_id(cursor, application_id):
         }
         for g in grades_raw
     ]
+
+
+def update_application_data(db, user_id, application_id, application, raw_data):
+    cursor = db.cursor()
+
+    # 1. Verify ownership
+    cursor.execute("SELECT id FROM applications WHERE id = %s AND student_id = %s", (application_id, user_id))
+    if not cursor.fetchone():
+        cursor.close()
+        return False
+
+    # 2. Update Education Info
+    cursor.execute("""
+                   UPDATE education_info
+                   SET campus_id=%s,
+                       department_id=%s,
+                       course_id=%s,
+                       year_level=%s,
+                       total_units=%s,
+                       enrollment_status=%s
+                   WHERE student_id = %s
+                     AND semester_id = %s
+                   """, (
+                       application.campus, application.department, application.course,
+                       application.year_level, application.total_units, application.enrollment_status,
+                       user_id, application.semester_id
+                   ))
+
+    # 3. Update Addresses
+    cursor.execute("""
+                   UPDATE addresses
+                   SET street=%s,
+                       region_code=%s,
+                       region_name=%s,
+                       province_code=%s,
+                       province_name=%s,
+                       municipality_code=%s,
+                       municipality_name=%s,
+                       barangay_code=%s,
+                       barangay_name=%s,
+                       zip_code=%s,
+                       updated_at=CURRENT_TIMESTAMP
+                   WHERE student_id = %s
+                   """, (
+                       application.street, application.region_code, application.region_name,
+                       application.province_code, application.province_name,
+                       application.municipality_code, application.municipality_name,
+                       application.barangay_code, application.barangay_name, application.zip_code,
+                       user_id
+                   ))
+
+    # 4. Update Family Background
+    cursor.execute("""
+                   UPDATE family_background
+                   SET father_last_name=%s,
+                       father_first_name=%s,
+                       father_middle_name=%s,
+                       father_extension=%s,
+                       father_occupation=%s,
+                       father_income=%s,
+                       mother_last_name=%s,
+                       mother_first_name=%s,
+                       mother_middle_name=%s,
+                       mother_occupation=%s,
+                       mother_income=%s,
+                       household_number=%s,
+                       ip_affiliation=%s,
+                       is_4ps_member=%s,
+                       siblings=%s,
+                       siblings_studying=%s,
+                       updated_at=CURRENT_TIMESTAMP
+                   WHERE student_id = %s
+                   """, (
+                       application.father_last_name, application.father_first_name, application.father_middle_name,
+                       application.father_extension,
+                       application.father_occupation, application.father_income,
+                       application.mother_last_name, application.mother_first_name, application.mother_middle_name,
+                       application.mother_occupation, application.mother_income,
+                       application.household_number, application.ip_affiliation, 1 if application.dswd_program else 0,
+                       application.siblings, application.siblings_studying,
+                       user_id
+                   ))
+
+    # 5. Update Grades (Delete old, Insert new safely)
+    if hasattr(application, 'grades_list') and application.grades_list:
+        # Clear existing grades for this application
+        cursor.execute("DELETE FROM application_grades WHERE application_id = %s", (application_id,))
+
+        for grade in application.grades_list:
+            # SAFETY CHECK: Skip rows with empty grades or subjects
+            subject = grade.get('subject', '').strip()
+            grade_val = str(grade.get('grade', '')).strip()
+            units_val = str(grade.get('units', '')).strip()
+
+            if not subject or not grade_val:
+                continue  # Skip invalid row
+
+            try:
+                # Convert to ensure it's a valid number, otherwise catch error
+                grade_num = float(grade_val)
+                units_num = int(float(units_val)) if units_val else 0
+
+                cursor.execute("""
+                               INSERT INTO application_grades (application_id, subject_name, grade, units)
+                               VALUES (%s, %s, %s, %s)
+                               """, (application_id, subject, grade_num, units_num))
+            except ValueError:
+                continue  # Skip if grade is not a number
+
+    # 6. Update Files (Only if new ones were uploaded)
+    if "itr" in raw_data and raw_data["itr"]:
+        cursor.execute("""
+                       INSERT INTO application_files (application_id, file_type, file_path)
+                       VALUES (%s, 'itr', %s)
+                       """, (application_id, raw_data["itr"]))
+
+    if "grades" in raw_data and raw_data["grades"]:
+        cursor.execute("""
+                       INSERT INTO application_files (application_id, file_type, file_path)
+                       VALUES (%s, 'grades', %s)
+                       """, (application_id, raw_data["grades"]))
+
+    # 7. Update Status (Optional: Set back to pending if needed)
+    cursor.execute("UPDATE applications SET status = 'pending', submitted_at = NOW() WHERE id = %s", (application_id,))
+
+    cursor.close()
+    return True
