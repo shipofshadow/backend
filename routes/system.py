@@ -63,9 +63,11 @@ def reset_system():
     """
     data = request.get_json()
     confirmation = data.get('confirmation') if data else None
+
+    print(confirmation)
     
     # Require exact confirmation phrase
-    if confirmation != "RESET_SYSTEM_CONFIRM":
+    if confirmation != "RESET":
         return jsonify({
             "success": False,
             "error": "Invalid confirmation. Send 'RESET_SYSTEM_CONFIRM' to proceed."
