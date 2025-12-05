@@ -1177,7 +1177,7 @@ def get_period_comparison():
         changes['applicationsChange'] = round(
             ((current_data['totalApplications'] - previous_data['totalApplications']) * 100.0 /
              previous_data['totalApplications']), 2
-        ) if previous_data['totalApplications'] > 0 else 0
+        )
         changes['approvalRateChange'] = round(
             current_data['approvalRate'] - previous_data['approvalRate'], 2
         )
@@ -1229,7 +1229,7 @@ def get_summary_totals():
     query = f"""
         SELECT 
             COALESCE(SUM(CASE WHEN ss.status = 'selected' THEN ss.awarded_amount ELSE 0 END), 0) as total_awarded,
-            COUNT(DISTINCT CASE WHEN app.status = 'approved' THEN app.id END) as scholars_count,
+            COUNT(DISTINCT CASE WHEN ss.status = 'selected' THEN app.id END) as scholars_count,
             AVG(CASE WHEN ss.status = 'selected' THEN ss.awarded_amount END) as avg_award,
             COUNT(DISTINCT CASE WHEN app.status = 'pending' THEN app.id END) as pending_count,
             COUNT(DISTINCT CASE WHEN app.status = 'evaluated' THEN app.id END) as evaluated_count
