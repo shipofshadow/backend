@@ -112,7 +112,7 @@ def get_admin_users():
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
                        WHERE u.deleted_at IS NULL
-                         AND u.role IN ('admin', 'bitress')
+                         AND u.role IN ('admin')
                        ORDER BY u.id ASC
                        """)
 
