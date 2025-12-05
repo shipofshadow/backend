@@ -365,6 +365,7 @@ def current_academic_year():
 
 
 @meta_bp.route('/campuses', methods=['GET'])
+@meta_bp.route('/campus', methods=['GET'])
 def get_campuses():
     """
     Get all campuses.

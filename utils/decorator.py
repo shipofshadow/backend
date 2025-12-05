@@ -28,7 +28,7 @@ def bitress_required(fn):
     return wrapper
 
 
-def admin_or_bitress_required(fn):
+def privilegedRoleRequired(fn):
     """Decorator to allow both admin and bitress roles"""
     @wraps(fn)
     def wrapper(*args, **kwargs):

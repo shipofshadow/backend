@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.decorator import (
     admin_required,
     bitress_required,
-    admin_or_bitress_required,
+    privilegedRoleRequired,
     faculty_required,
     admin_or_faculty_required,
     get_user_campus_scope,

@@ -2,8 +2,8 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt
 from services.admin import manage_academic
 from utils.decorator import (
-    admin_or_faculty_required, 
-    admin_or_bitress_required,
+    admin_or_faculty_required,
+    privilegedRoleRequired,
     get_user_campus_scope,
     has_campus_access,
     UNRESTRICTED_ROLES,
@@ -38,7 +38,7 @@ def get_campuses():
 
 @campus_bp.route("/", methods=["POST"])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def create_campus():
     """
     Add a new campus.
@@ -65,7 +65,7 @@ def create_campus():
 
 @campus_bp.route("/<int:campus_id>", methods=["PUT"])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def update_campus(campus_id):
     """
     Update a campus by ID.
@@ -96,7 +96,7 @@ def update_campus(campus_id):
 
 @campus_bp.route("/<int:campus_id>", methods=["DELETE"])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def delete_campus(campus_id):
     """
     Delete a campus by ID.

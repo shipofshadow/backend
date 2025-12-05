@@ -6,7 +6,7 @@ import re
 from storage import get_connection
 from utils.hashing import hash_password
 from utils.utils import generate_avatar
-from utils.decorator import admin_or_bitress_required, bitress_required
+from utils.decorator import privilegedRoleRequired, bitress_required
 
 users_bp = Blueprint('users', __name__, url_prefix='/api/users/')
 
@@ -93,7 +93,7 @@ def user_exists(user_id):
 # Get all admin users
 @users_bp.route('/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def get_admin_users():
     """Get all admin users including faculty, except deleted ones"""
     try:
@@ -115,7 +115,7 @@ def get_admin_users():
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
                                 LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.deleted_at IS NULL
-                         AND u.role IN ('admin', 'bitress', 'faculty')
+                         AND u.role IN ('admin', 'faculty')
                        ORDER BY u.id ASC
                        """)
 
@@ -140,7 +140,7 @@ def get_admin_users():
 # Get single user by ID
 @users_bp.route('/<int:user_id>/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def get_user(user_id):
     """Get a single user by ID"""
     try:
@@ -328,7 +328,7 @@ def create_user():
 # Update user
 @users_bp.route('/<int:user_id>/', methods=['PUT'])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def update_user(user_id):
     """Update an existing user"""
     try:
@@ -662,7 +662,7 @@ def restore_user(user_id):
 # Toggle user active status
 @users_bp.route('/<int:user_id>/toggle-status/', methods=['PUT'])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def toggle_user_status(user_id):
     """Toggle user active/inactive status"""
     try:
@@ -737,7 +737,7 @@ def toggle_user_status(user_id):
 # Get all deleted users
 @users_bp.route('/deleted/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@privilegedRoleRequired
 def get_deleted_users():
     """Get all soft-deleted users including faculty"""
     try:
