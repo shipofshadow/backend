@@ -166,6 +166,22 @@ ischolar-api/
    - Import database schema (if provided)
    - Ensure database user has proper permissions
 
+   **Required Tables**
+   
+   For the Potential Applicants feature, create the following table:
+   ```sql
+   CREATE TABLE `application_reminders` (
+     `id` int(11) NOT NULL AUTO_INCREMENT,
+     `student_id` int(11) NOT NULL,
+     `semester_id` int(11) NOT NULL,
+     `sent_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     `sent_by` int(11) DEFAULT NULL,
+     PRIMARY KEY (`id`),
+     UNIQUE KEY `unique_reminder` (`student_id`, `semester_id`),
+     KEY `idx_semester` (`semester_id`)
+   );
+   ```
+
 6. **Redis Setup**
    - Start Redis server
    - Configure Redis with password if required
@@ -216,6 +232,11 @@ The API will be available at:
 - `PUT /api/applicants/{id}/status` - Update applicant status
 - `POST /api/evaluations/` - Create evaluation
 - `GET /api/dashboard/stats` - Get dashboard statistics
+
+### Potential Applicants
+- `GET /api/students/potential-applicants` - Get students who registered but haven't applied
+- `POST /api/students/send-application-reminder` - Send reminder email to a single student
+- `POST /api/students/send-bulk-reminders` - Send bulk reminder emails to multiple students
 
 ### Real-time Features
 - WebSocket connection for real-time notifications

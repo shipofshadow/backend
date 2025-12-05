@@ -30,6 +30,7 @@ from routes.scholarship_summary import scholarship_summary_bp
 from routes.scholarships import scholarships_bp
 from routes.settings import settings_bp
 from routes.users import users_bp
+from routes.potential_applicants import potential_applicants_bp
 from utils.response import error
 from werkzeug.routing import BaseConverter
 
@@ -99,6 +100,7 @@ app.register_blueprint(backup_bp)
 app.register_blueprint(users_bp, strict_slashes=False)
 app.register_blueprint(announcement_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(potential_applicants_bp)
 # Swagger
 swagger = Swagger(app)
 # Routes
