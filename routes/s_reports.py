@@ -913,6 +913,18 @@ def get_filter_options():
                          """
     scholarships = execute_query(scholarships_query)
 
+    # Get active period info
+    active_period_query = """
+        SELECT 
+            CONCAT(ay.year_start, '-', ay.year_end) as academic_year,
+            sem.name as semester
+        FROM semesters sem
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        WHERE sem.is_active = 1
+        LIMIT 1
+    """
+    active_period = execute_query(active_period_query, fetch_one=True)
+
     return jsonify({
         'academicYears': [ay['value'] for ay in (academic_years or [])],
         'semesters': [s['value'] for s in (semesters or [])],
@@ -920,7 +932,11 @@ def get_filter_options():
         'departments': [d['value'] for d in (departments or [])],
         'courses': [c['value'] for c in (courses or [])],
         'scholarships': [s['value'] for s in (scholarships or [])],
-        'statuses': ['All', 'Pending', 'Approved', 'Denied', 'Evaluated']
+        'statuses': ['All', 'Pending', 'Approved', 'Denied', 'Evaluated'],
+        'activePeriod': {
+            'academicYear': active_period['academic_year'] if active_period else None,
+            'semester': active_period['semester'] if active_period else None
+        }
     })
 
 
@@ -1019,6 +1035,238 @@ def get_statistics():
             'income': {'average': 0, 'minimum': 0, 'maximum': 0, 'standardDeviation': 0},
             'fuzzyScore': {'average': 0, 'minimum': 0, 'maximum': 0, 'standardDeviation': 0},
             'awards': {'totalAmount': 0, 'averageAmount': 0}
+        })
+
+
+# ============================================================================
+# HELPER FUNCTION FOR PREVIOUS PERIOD
+# ============================================================================
+def get_previous_semester(current_semester_id):
+    """Get the previous semester ID based on current semester"""
+    query = """
+        SELECT sem.id
+        FROM semesters sem
+        WHERE sem.id < %s AND sem.deleted_at IS NULL
+        ORDER BY sem.id DESC
+        LIMIT 1
+    """
+    result = execute_query(query, (current_semester_id,), fetch_one=True)
+    return result['id'] if result else None
+
+
+# ============================================================================
+# ACTIVE PERIOD ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/active-period', methods=['GET'])
+def get_active_period():
+    """Get the currently active semester and academic year"""
+    query = """
+        SELECT 
+            CONCAT(ay.year_start, '-', ay.year_end) as academic_year,
+            ay.id as academic_year_id,
+            ay.year_start,
+            ay.year_end,
+            sem.name as semester_name,
+            sem.id as semester_id,
+            sem.start_date,
+            sem.end_date,
+            sem.is_active
+        FROM semesters sem
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        WHERE sem.is_active = 1
+        LIMIT 1
+    """
+    result = execute_query(query, fetch_one=True)
+
+    if not result:
+        return jsonify({"error": "No active period found"}), 404
+
+    return jsonify({
+        "academicYear": result['academic_year'],
+        "academicYearId": result['academic_year_id'],
+        "yearStart": result['year_start'],
+        "yearEnd": result['year_end'],
+        "semester": result['semester_name'],
+        "semesterId": result['semester_id'],
+        "semesterName": result['semester_name'],
+        "startDate": result['start_date'].isoformat() if result['start_date'] else None,
+        "endDate": result['end_date'].isoformat() if result['end_date'] else None,
+        "isActive": bool(result['is_active'])
+    })
+
+
+# ============================================================================
+# PERIOD COMPARISON ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/comparison', methods=['GET'])
+def get_period_comparison():
+    """Get comparison data between current and previous period"""
+    current_semester_id = request.args.get('currentSemesterId', type=int)
+    previous_semester_id = request.args.get('previousSemesterId', type=int)
+
+    # If currentSemesterId not provided, get active semester
+    if not current_semester_id:
+        active_query = """
+            SELECT id FROM semesters WHERE is_active = 1 LIMIT 1
+        """
+        active_result = execute_query(active_query, fetch_one=True)
+        if not active_result:
+            return jsonify({"error": "No active semester found"}), 404
+        current_semester_id = active_result['id']
+
+    # If previousSemesterId not provided, get the previous semester
+    if not previous_semester_id:
+        previous_semester_id = get_previous_semester(current_semester_id)
+
+    def get_period_data(semester_id):
+        """Helper function to get statistics for a specific semester"""
+        if not semester_id:
+            return None
+
+        query = """
+            SELECT 
+                CONCAT(sem.name, ' ', ay.year_start, '-', ay.year_end) as period,
+                sem.id as semester_id,
+                COUNT(DISTINCT app.id) as total_applications,
+                COUNT(DISTINCT CASE WHEN app.status = 'approved' THEN app.id END) as approved_applications,
+                COUNT(DISTINCT CASE WHEN app.status = 'denied' THEN app.id END) as denied_applications,
+                COUNT(DISTINCT CASE WHEN app.status = 'pending' THEN app.id END) as pending_applications,
+                AVG(e.gwa) as average_gwa,
+                AVG(e.income) as average_income,
+                COALESCE(SUM(ss.awarded_amount), 0) as total_awarded,
+                COUNT(DISTINCT CASE WHEN ss.status = 'selected' THEN ss.id END) as number_of_scholars
+            FROM semesters sem
+            JOIN academic_years ay ON sem.academic_year_id = ay.id
+            LEFT JOIN applications app ON app.semester_id = sem.id AND app.deleted_at IS NULL
+            LEFT JOIN evaluations e ON e.application_id = app.id
+            LEFT JOIN scholarship_selections ss ON ss.application_id = app.id AND ss.status = 'selected'
+            WHERE sem.id = %s
+            GROUP BY sem.id, sem.name, ay.year_start, ay.year_end
+        """
+        result = execute_query(query, (semester_id,), fetch_one=True)
+        if not result:
+            return None
+
+        total = result['total_applications'] or 0
+        approved = result['approved_applications'] or 0
+        approval_rate = round((approved * 100.0 / total), 2) if total > 0 else 0.0
+
+        return {
+            "period": result['period'],
+            "semesterId": result['semester_id'],
+            "totalApplications": total,
+            "approvedApplications": approved,
+            "deniedApplications": result['denied_applications'] or 0,
+            "pendingApplications": result['pending_applications'] or 0,
+            "approvalRate": approval_rate,
+            "averageGWA": round(result['average_gwa'], 2) if result['average_gwa'] else 0,
+            "averageIncome": round(result['average_income'], 2) if result['average_income'] else 0,
+            "totalAwarded": float(result['total_awarded'] or 0),
+            "numberOfScholars": result['number_of_scholars'] or 0
+        }
+
+    current_data = get_period_data(current_semester_id)
+    previous_data = get_period_data(previous_semester_id)
+
+    if not current_data:
+        return jsonify({"error": "No data found for current period"}), 404
+
+    # Calculate changes
+    changes = {}
+    if previous_data and previous_data['totalApplications'] > 0:
+        changes['applicationsChange'] = round(
+            ((current_data['totalApplications'] - previous_data['totalApplications']) * 100.0 /
+             previous_data['totalApplications']), 2
+        ) if previous_data['totalApplications'] > 0 else 0
+        changes['approvalRateChange'] = round(
+            current_data['approvalRate'] - previous_data['approvalRate'], 2
+        )
+        changes['gwaChange'] = round(
+            current_data['averageGWA'] - previous_data['averageGWA'], 2
+        )
+        changes['incomeChange'] = round(
+            ((current_data['averageIncome'] - previous_data['averageIncome']) * 100.0 /
+             previous_data['averageIncome']), 2
+        ) if previous_data['averageIncome'] > 0 else 0
+        changes['awardedChange'] = round(
+            ((current_data['totalAwarded'] - previous_data['totalAwarded']) * 100.0 /
+             previous_data['totalAwarded']), 2
+        ) if previous_data['totalAwarded'] > 0 else 0
+        changes['scholarsChange'] = round(
+            ((current_data['numberOfScholars'] - previous_data['numberOfScholars']) * 100.0 /
+             previous_data['numberOfScholars']), 2
+        ) if previous_data['numberOfScholars'] > 0 else 0
+    else:
+        changes = {
+            'applicationsChange': 0,
+            'approvalRateChange': 0,
+            'gwaChange': 0,
+            'incomeChange': 0,
+            'awardedChange': 0,
+            'scholarsChange': 0
+        }
+
+    return jsonify({
+        "current": current_data,
+        "previous": previous_data,
+        "changes": changes
+    })
+
+
+# ============================================================================
+# SUMMARY TOTALS ENDPOINT
+# ============================================================================
+@reports_bp.route('/dashboard/summary-totals', methods=['GET'])
+def get_summary_totals():
+    """Get high-level summary totals for dashboard header"""
+    filters = {
+        'academicYear': request.args.get('academicYear'),
+        'semester': request.args.get('semester'),
+    }
+
+    where_clause, params = build_filter_conditions(filters)
+
+    query = f"""
+        SELECT 
+            COALESCE(SUM(CASE WHEN ss.status = 'selected' THEN ss.awarded_amount ELSE 0 END), 0) as total_awarded,
+            COUNT(DISTINCT CASE WHEN app.status = 'approved' THEN app.id END) as scholars_count,
+            AVG(CASE WHEN ss.status = 'selected' THEN ss.awarded_amount END) as avg_award,
+            COUNT(DISTINCT CASE WHEN app.status = 'pending' THEN app.id END) as pending_count,
+            COUNT(DISTINCT CASE WHEN app.status = 'evaluated' THEN app.id END) as evaluated_count
+        FROM applications app
+        JOIN semesters sem ON app.semester_id = sem.id
+        JOIN academic_years ay ON sem.academic_year_id = ay.id
+        LEFT JOIN scholarship_selections ss ON app.id = ss.application_id
+        WHERE app.deleted_at IS NULL AND {where_clause}
+    """
+
+    result = execute_query(query, params, fetch_one=True)
+
+    # Get active scholarships count
+    active_scholarships_query = """
+        SELECT COUNT(*) as count
+        FROM scholarships
+        WHERE is_active = 1 AND deleted_at IS NULL
+    """
+    active_scholarships = execute_query(active_scholarships_query, fetch_one=True)
+
+    if result:
+        return jsonify({
+            "totalAmountAwarded": float(result['total_awarded'] or 0),
+            "numberOfScholars": result['scholars_count'] or 0,
+            "averageAwardAmount": round(result['avg_award'], 2) if result['avg_award'] else 0,
+            "pendingApplications": result['pending_count'] or 0,
+            "evaluatedNotAwarded": result['evaluated_count'] or 0,
+            "activeScholarships": active_scholarships['count'] if active_scholarships else 0
+        })
+    else:
+        return jsonify({
+            "totalAmountAwarded": 0,
+            "numberOfScholars": 0,
+            "averageAwardAmount": 0,
+            "pendingApplications": 0,
+            "evaluatedNotAwarded": 0,
+            "activeScholarships": active_scholarships['count'] if active_scholarships else 0
         })
 
 
