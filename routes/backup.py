@@ -1052,15 +1052,12 @@ def get_storage_config():
     """Get current storage configuration (without sensitive keys)"""
     try:
         return jsonify({
-            "success": True,
-            "config": {
-                "s3_enabled": s3_service.enabled,
-                "s3_bucket": Config.S3_BUCKET if s3_service.enabled else None,
-                "s3_region": Config.S3_REGION if s3_service.enabled else None,
-                "s3_endpoint": Config.S3_ENDPOINT if s3_service.enabled and Config.S3_ENDPOINT else None,
-                "local_backup_dir": str(BACKUP_DIR.absolute()),
-                "local_backup_exists": BACKUP_DIR.exists()
-            }
+            "s3_enabled": s3_service.enabled,
+            "s3_bucket": Config.S3_BUCKET if s3_service.enabled else None,
+            "s3_region": Config.S3_REGION if s3_service.enabled else None,
+            "s3_endpoint": Config.S3_ENDPOINT if s3_service.enabled and Config.S3_ENDPOINT else None,
+            "local_backup_dir": str(BACKUP_DIR.absolute()),
+            "local_backup_exists": BACKUP_DIR.exists()
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
