@@ -1,4 +1,5 @@
 """S3 Storage Service for backup management"""
+import logging
 import os
 from typing import Optional
 
@@ -6,6 +7,8 @@ import boto3
 from botocore.exceptions import ClientError
 
 from config import Config
+
+logger = logging.getLogger(__name__)
 
 
 class S3Service:
@@ -34,50 +37,42 @@ class S3Service:
         """Upload a file to S3"""
         if not self.enabled:
             raise RuntimeError("S3 is not enabled")
-        if not self.client:
-            raise RuntimeError("S3 client not initialized")
 
         try:
             self.client.upload_file(local_path, self.bucket, s3_key)
             return True
         except ClientError as e:
-            print(f"S3 upload error: {e}")
+            logger.error(f"S3 upload error: {e}")
             raise
 
     def download_file(self, s3_key: str, local_path: str) -> bool:
         """Download a file from S3"""
         if not self.enabled:
             raise RuntimeError("S3 is not enabled")
-        if not self.client:
-            raise RuntimeError("S3 client not initialized")
 
         try:
             self.client.download_file(self.bucket, s3_key, local_path)
             return True
         except ClientError as e:
-            print(f"S3 download error: {e}")
+            logger.error(f"S3 download error: {e}")
             raise
 
     def delete_file(self, s3_key: str) -> bool:
         """Delete a file from S3"""
         if not self.enabled:
             raise RuntimeError("S3 is not enabled")
-        if not self.client:
-            raise RuntimeError("S3 client not initialized")
 
         try:
             self.client.delete_object(Bucket=self.bucket, Key=s3_key)
             return True
         except ClientError as e:
-            print(f"S3 delete error: {e}")
+            logger.error(f"S3 delete error: {e}")
             raise
 
     def list_files(self, prefix: str = "backups/") -> list:
         """List files in S3 bucket with given prefix"""
         if not self.enabled:
             raise RuntimeError("S3 is not enabled")
-        if not self.client:
-            raise RuntimeError("S3 client not initialized")
 
         try:
             response = self.client.list_objects_v2(
@@ -94,14 +89,12 @@ class S3Service:
                 })
             return files
         except ClientError as e:
-            print(f"S3 list error: {e}")
+            logger.error(f"S3 list error: {e}")
             raise
 
     def file_exists(self, s3_key: str) -> bool:
         """Check if a file exists in S3"""
         if not self.enabled:
-            return False
-        if not self.client:
             return False
 
         try:
@@ -113,8 +106,6 @@ class S3Service:
     def get_file_info(self, s3_key: str) -> Optional[dict]:
         """Get file metadata from S3"""
         if not self.enabled:
-            return None
-        if not self.client:
             return None
 
         try:

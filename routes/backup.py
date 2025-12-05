@@ -23,6 +23,12 @@ def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
+def is_valid_filename(filename):
+    """Validate filename to prevent path traversal attacks"""
+    return '..' not in filename and '/' not in filename and '\\' not in filename
+
+
 backup_bp = Blueprint('backup', __name__)
 
 # Configuration
@@ -855,7 +861,7 @@ def upload_to_s3(filename):
         if not s3_service.enabled:
             return jsonify({"success": False, "error": "S3 is not configured"}), 400
 
-        if '..' in filename or '/' in filename or '\\' in filename:
+        if not is_valid_filename(filename):
             return jsonify({"success": False, "error": "Invalid filename"}), 400
 
         local_path = BACKUP_DIR / filename
@@ -901,7 +907,7 @@ def download_from_s3(filename):
         if not s3_service.enabled:
             return jsonify({"success": False, "error": "S3 is not configured"}), 400
 
-        if '..' in filename or '/' in filename or '\\' in filename:
+        if not is_valid_filename(filename):
             return jsonify({"success": False, "error": "Invalid filename"}), 400
 
         s3_key = f"backups/{filename}"
@@ -930,7 +936,7 @@ def delete_s3_backup(filename):
         if not s3_service.enabled:
             return jsonify({"success": False, "error": "S3 is not configured"}), 400
 
-        if '..' in filename or '/' in filename or '\\' in filename:
+        if not is_valid_filename(filename):
             return jsonify({"success": False, "error": "Invalid filename"}), 400
 
         s3_key = f"backups/{filename}"
