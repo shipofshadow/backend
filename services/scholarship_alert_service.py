@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Any
 from storage import get_connection
 from services.recommend_service import RecommendationService
 from services.notification_service import create_notification
-from utils.utils import extract_applicant_flags
+from utils.utils import extract_applicant_flags, smart_detect_flags
 
 logger = logging.getLogger(__name__)
 
@@ -370,8 +370,6 @@ def mark_alert_read(alert_id: int, student_id: int) -> bool:
 
 def _build_applicant_data(student: Dict) -> Dict:
     """Build applicant_data dict from student record."""
-    from utils.utils import smart_detect_flags
-    
     flags = smart_detect_flags(
         student.get("father_occupation", ""),
         student.get("mother_occupation", "")

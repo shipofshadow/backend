@@ -46,7 +46,7 @@ class TestGenerateMatchExplanation:
             if min_gwa is not None and max_gwa is not None:
                 description = f"Your GWA of {gwa} is within the required range of {min_gwa}-{max_gwa}"
             elif min_gwa is not None:
-                description = f"Your GWA of {gwa} exceeds the minimum requirement of {min_gwa}"
+                description = f"Your GWA of {gwa} meets the minimum requirement of {min_gwa}"
             else:
                 description = f"Your GWA of {gwa} meets the maximum requirement of {max_gwa}"
 
@@ -197,7 +197,7 @@ class TestGenerateMatchExplanation:
         
         academic_factor = next((f for f in result["strength_factors"] if f["factor"] == "Academic Performance"), None)
         assert academic_factor is not None
-        assert "exceeds the minimum requirement" in academic_factor["description"]
+        assert "meets the minimum requirement" in academic_factor["description"]
 
     def test_financial_need_factor(self):
         """Test financial need factor is included when income requirements exist."""

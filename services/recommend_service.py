@@ -159,7 +159,7 @@ class RecommendationService:
             if min_gwa is not None and max_gwa is not None:
                 description = f"Your GWA of {gwa} is within the required range of {min_gwa}-{max_gwa}"
             elif min_gwa is not None:
-                description = f"Your GWA of {gwa} exceeds the minimum requirement of {min_gwa}"
+                description = f"Your GWA of {gwa} meets the minimum requirement of {min_gwa}"
             else:
                 description = f"Your GWA of {gwa} meets the maximum requirement of {max_gwa}"
 
