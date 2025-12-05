@@ -31,6 +31,18 @@ def get_available_scholarships_count(cursor, semester_id):
     return result['count'] if result else 0
 
 
+def prepare_email_context(student, active_semester, scholarships_count):
+    """Prepare email context for application reminder"""
+    semester_name = f"{active_semester['name']} {active_semester['academic_year']}"
+    return {
+        "student_name": f"{student['first_name']} {student['last_name']}",
+        "semester_name": semester_name,
+        "available_scholarships_count": scholarships_count,
+        "apply_link": f"{Config.APP_URL}/applicant/home",
+        "application_deadline": active_semester.get('end_date').strftime('%B %d, %Y') if active_semester.get('end_date') else None
+    }
+
+
 @potential_applicants_bp.route('/potential-applicants', methods=['GET'])
 @jwt_required()
 def get_potential_applicants():
@@ -185,14 +197,7 @@ def send_reminder():
         scholarships_count = get_available_scholarships_count(cursor, semester_id)
 
         # Prepare email context
-        semester_name = f"{active_semester['name']} {active_semester['academic_year']}"
-        context = {
-            "student_name": f"{student['first_name']} {student['last_name']}",
-            "semester_name": semester_name,
-            "available_scholarships_count": scholarships_count,
-            "apply_link": f"{Config.APP_URL}/applicant/home",
-            "application_deadline": active_semester.get('end_date').strftime('%B %d, %Y') if active_semester.get('end_date') else None
-        }
+        context = prepare_email_context(student, active_semester, scholarships_count)
 
         # Send email
         send_application_reminder_email(student['email'], context)
@@ -277,10 +282,6 @@ def send_bulk_reminders():
         # Get available scholarships count
         scholarships_count = get_available_scholarships_count(cursor, semester_id)
 
-        # Prepare semester name
-        semester_name = f"{active_semester['name']} {active_semester['academic_year']}"
-        application_deadline = active_semester.get('end_date').strftime('%B %d, %Y') if active_semester.get('end_date') else None
-
         results = {
             "sent": 0,
             "skipped": 0,
@@ -323,13 +324,7 @@ def send_bulk_reminders():
 
             try:
                 # Prepare email context
-                context = {
-                    "student_name": f"{student['first_name']} {student['last_name']}",
-                    "semester_name": semester_name,
-                    "available_scholarships_count": scholarships_count,
-                    "apply_link": f"{Config.APP_URL}/applicant/home",
-                    "application_deadline": application_deadline
-                }
+                context = prepare_email_context(student, active_semester, scholarships_count)
 
                 # Send email
                 send_application_reminder_email(student['email'], context)
