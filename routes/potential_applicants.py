@@ -1,5 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from services.admin.manage_periods import get_active_period
 from storage import get_connection
 from services.email_service import send_application_reminder_email
 from config import Config
@@ -8,32 +10,21 @@ import logging
 potential_applicants_bp = Blueprint('potential_applicants', __name__, url_prefix='/api/students')
 
 
-def get_active_semester(cursor):
-    """Get the current active semester"""
-    cursor.execute("""
-        SELECT id, name, academic_year, start_date, end_date
-        FROM semesters
-        WHERE is_active = 1
-        LIMIT 1
-    """)
-    return cursor.fetchone()
 
-
-def get_available_scholarships_count(cursor, semester_id):
+def get_available_scholarships_count(cursor):
     """Get count of available scholarships for the active semester"""
     cursor.execute("""
         SELECT COUNT(*) as count
         FROM scholarships
         WHERE deleted_at IS NULL
-        AND (semester_id = %s OR semester_id IS NULL)
-    """, (semester_id,))
+    """)
     result = cursor.fetchone()
     return result['count'] if result else 0
 
 
 def prepare_email_context(student, active_semester, scholarships_count):
     """Prepare email context for application reminder"""
-    semester_name = f"{active_semester['name']} {active_semester['academic_year']}"
+    semester_name = f"AY {active_semester['year_start']}-{active_semester['year_end']} - {active_semester['semester_name']}"
     return {
         "student_name": f"{student['first_name']} {student['last_name']}",
         "semester_name": semester_name,
@@ -64,11 +55,11 @@ def get_potential_applicants():
 
     try:
         # Get active semester
-        active_semester = get_active_semester(cursor)
+        active_semester = get_active_period()
         if not active_semester:
             return jsonify({"error": "No active semester found"}), 404
 
-        semester_id = active_semester['id']
+        semester_id = active_semester['academic_year_id']
 
         # Query for students who have registered but not applied
         cursor.execute("""
@@ -88,7 +79,6 @@ def get_potential_applicants():
             LEFT JOIN application_reminders ar ON s.user_id = ar.student_id 
                 AND ar.semester_id = %s
             WHERE a.id IS NULL
-                AND s.is_verified = 1
                 AND s.deleted_at IS NULL
             ORDER BY s.created_at DESC
         """, (semester_id, semester_id))
@@ -104,9 +94,10 @@ def get_potential_applicants():
             "potentialApplicants": potential_applicants,
             "total": len(potential_applicants),
             "activeSemester": {
-                "id": active_semester['id'],
-                "name": active_semester['name'],
-                "academicYear": active_semester['academic_year']
+                "id": active_semester['academic_year_id'],
+                "name": active_semester['semester_name'],
+                "academicYear":  f"{active_semester['year_start']}-{active_semester['year_end']}",
+
             }
         }
 
@@ -161,11 +152,11 @@ def send_reminder():
 
     try:
         # Get active semester
-        active_semester = get_active_semester(cursor)
+        active_semester = get_active_period()
         if not active_semester:
             return jsonify({"success": False, "error": "No active semester found"}), 404
 
-        semester_id = active_semester['id']
+        semester_id = active_semester['academic_year_id']
         current_user_id = get_jwt_identity()
 
         # Check if reminder already sent
@@ -186,7 +177,7 @@ def send_reminder():
         cursor.execute("""
             SELECT user_id, student_id, first_name, last_name, email
             FROM students
-            WHERE user_id = %s AND is_verified = 1 AND deleted_at IS NULL
+            WHERE user_id = %s AND deleted_at IS NULL
         """, (student_id,))
         student = cursor.fetchone()
 
@@ -194,7 +185,7 @@ def send_reminder():
             return jsonify({"success": False, "error": "Student not found"}), 404
 
         # Get available scholarships count
-        scholarships_count = get_available_scholarships_count(cursor, semester_id)
+        scholarships_count = get_available_scholarships_count(cursor)
 
         # Prepare email context
         context = prepare_email_context(student, active_semester, scholarships_count)
@@ -272,15 +263,15 @@ def send_bulk_reminders():
 
     try:
         # Get active semester
-        active_semester = get_active_semester(cursor)
+        active_semester = get_active_period()
         if not active_semester:
             return jsonify({"success": False, "error": "No active semester found"}), 404
 
-        semester_id = active_semester['id']
+        semester_id = active_semester['academic_year_id']
         current_user_id = get_jwt_identity()
 
         # Get available scholarships count
-        scholarships_count = get_available_scholarships_count(cursor, semester_id)
+        scholarships_count = get_available_scholarships_count(cursor)
 
         results = {
             "sent": 0,
@@ -309,7 +300,7 @@ def send_bulk_reminders():
             cursor.execute("""
                 SELECT user_id, student_id, first_name, last_name, email
                 FROM students
-                WHERE user_id = %s AND is_verified = 1 AND deleted_at IS NULL
+                WHERE user_id = %s AND deleted_at IS NULL
             """, (student_id,))
             student = cursor.fetchone()
 
