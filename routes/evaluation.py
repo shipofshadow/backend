@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
 from flask import Blueprint, request, jsonify, Response
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from services.meta.fuzzy_logic import FuzzyEligibilitySystem
 from services.notification_service import create_notification
@@ -14,7 +14,7 @@ from services.recommend_service import RecommendationService
 
 from storage import get_connection
 from utils.applications import get_application
-from utils.decorator import admin_required
+from utils.decorator import admin_required, admin_or_faculty_required, ROLE_FACULTY, UNRESTRICTED_ROLES
 from utils.utils import smart_detect_flags, safe_json_parse, extract_applicant_flags
 
 # Configure logging
@@ -25,14 +25,62 @@ evaluations_bp = Blueprint('evaluations', __name__, url_prefix='/api/evaluations
 fuzzy = FuzzyEligibilitySystem(get_connection)
 
 
+def get_campus_filter_clause(claims, alias="cam"):
+    """Generate SQL WHERE clause for campus filtering based on user role.
+    Returns (clause, params) tuple.
+    """
+    role = claims.get("role")
+    campus_id = claims.get("campus_id")
+    
+    if role in UNRESTRICTED_ROLES:
+        return "", []
+    elif role == ROLE_FACULTY and campus_id is not None:
+        return f" AND {alias}.campus_id = %s", [campus_id]
+    else:
+        # Non-admin users should not have access, but return empty for safety
+        return "", []
+
+
+def check_application_campus_access(cursor, application_id, claims):
+    """Check if user has access to the application based on campus scope.
+    Returns (has_access, campus_id) tuple.
+    """
+    role = claims.get("role")
+    user_campus_id = claims.get("campus_id")
+    
+    if role in UNRESTRICTED_ROLES:
+        return True, None
+    
+    if role != ROLE_FACULTY:
+        return False, None
+    
+    # For faculty, check if application belongs to their campus
+    cursor.execute("""
+        SELECT ei.campus_id 
+        FROM applications a
+        LEFT JOIN education_info ei ON ei.student_id = a.student_id AND ei.semester_id = a.semester_id
+        WHERE a.id = %s AND a.deleted_at IS NULL
+    """, (application_id,))
+    result = cursor.fetchone()
+    
+    if not result:
+        return False, None
+    
+    app_campus_id = result.get("campus_id")
+    has_access = user_campus_id is not None and app_campus_id == user_campus_id
+    return has_access, app_campus_id
+
+
 # ============================================
 #       GET THE EVALUATEES
 # ============================================
 @evaluations_bp.route('/', methods=['GET'])
 @jwt_required()
+@admin_or_faculty_required
 def fetch_evaluatees():
     """
-     Fetch all applicants eligible for evaluation
+     Fetch all applicants eligible for evaluation.
+     Faculty users only see applicants from their assigned campus.
      ---
      tags:
        - Evaluations
@@ -78,16 +126,21 @@ def fetch_evaluatees():
          description: Internal server error
      """
     try:
+        claims = get_jwt()
         connection = get_connection()
         cursor = connection.cursor()
+
+        # Get campus filter for faculty users
+        campus_clause, campus_params = get_campus_filter_clause(claims, "campuses")
 
         query = base_applicant_query() + """
             WHERE applications.deleted_at IS NULL 
             AND semesters.is_active = 1
+        """ + campus_clause + """
             ORDER BY applications.status, applications.created_at DESC
         """
 
-        cursor.execute(query)
+        cursor.execute(query, campus_params)
         applicants = cursor.fetchall()
 
         if not applicants:
@@ -136,9 +189,11 @@ def fetch_evaluatees():
 # ============================================
 @evaluations_bp.route('/<int:application_id>/evaluate', methods=['POST'])
 @jwt_required()
+@admin_or_faculty_required
 def evaluate(application_id):
     """
-    Evaluate an application using fuzzy logic
+    Evaluate an application using fuzzy logic.
+    Faculty users can only evaluate applications from their assigned campus.
     ---
     tags:
       - Evaluations
@@ -183,12 +238,15 @@ def evaluate(application_id):
               type: number
       400:
         description: Invalid input data
+      403:
+        description: Campus scope violation
       404:
         description: Application not found
       500:
         description: Internal server error
     """
     try:
+        claims = get_jwt()
         data = request.get_json()
 
         is_valid, error_msg = validate_evaluation_data(data)
@@ -207,6 +265,11 @@ def evaluate(application_id):
         res = cursor.fetchone()
         if not res:
             return jsonify({"error": "Application not found"}), 404
+
+        # Check campus access for faculty users
+        has_access, _ = check_application_campus_access(cursor, application_id, claims)
+        if not has_access:
+            return jsonify({"error": "Access denied: campus scope violation"}), 403
 
         # Perform fuzzy logic evaluation
         result = fuzzy.evaluate(gwa, income)
@@ -779,9 +842,11 @@ def validate_evaluation_data(data: Dict) -> Tuple[bool, str]:
 # ============================================
 @evaluations_bp.route('/summary', methods=['GET'])
 @jwt_required()
+@admin_or_faculty_required
 def get_applicants_summary():
     """
-    Get all applicants with evaluation, recommendation and selection summary
+    Get all applicants with evaluation, recommendation and selection summary.
+    Faculty users only see applicants from their assigned campus.
     ---
     tags:
       - Evaluations
@@ -812,8 +877,12 @@ def get_applicants_summary():
         description: Internal server error
     """
     try:
+        claims = get_jwt()
         connection = get_connection()
         cursor = connection.cursor()
+
+        # Get campus filter for faculty users
+        campus_clause, campus_params = get_campus_filter_clause(claims, "cam")
 
         # Main query to get all applicants with evaluation, recommendation, and selection data
         query = """
@@ -852,10 +921,11 @@ def get_applicants_summary():
             JOIN semesters sem ON sem.id = a.semester_id
             WHERE a.deleted_at IS NULL
             AND sem.is_active = 1
+        """ + campus_clause + """
             ORDER BY a.id DESC
         """
 
-        cursor.execute(query)
+        cursor.execute(query, campus_params)
         rows = cursor.fetchall()
 
         if not rows:
@@ -971,10 +1041,11 @@ def get_applicants_summary():
 # ============================================
 @evaluations_bp.route('/bulk-evaluate', methods=['POST'])
 @jwt_required()
-@admin_required
+@admin_or_faculty_required
 def bulk_evaluate():
     """
-    Evaluate multiple applications at once
+    Evaluate multiple applications at once.
+    Faculty users can only evaluate applications from their assigned campus.
     ---
     tags:
       - Evaluations
@@ -1018,6 +1089,7 @@ def bulk_evaluate():
         description: Internal server error
     """
     try:
+        claims = get_jwt()
         data = request.get_json()
         application_ids = data.get("application_ids", [])
 
@@ -1039,19 +1111,38 @@ def bulk_evaluate():
         connection = get_connection()
         cursor = connection.cursor()
 
+        # Get campus filter for faculty users
+        role = claims.get("role")
+        user_campus_id = claims.get("campus_id")
+
         results = []
         successful = 0
         failed = 0
 
-        # Fetch all applications with their grades
+        # Fetch all applications with their grades and campus info
         placeholders = ",".join(["%s"] * len(application_ids))
         cursor.execute(f"""
-            SELECT a.id, a.student_id as user_id
+            SELECT a.id, a.student_id as user_id, ei.campus_id
             FROM applications a
+            LEFT JOIN education_info ei ON ei.student_id = a.student_id AND ei.semester_id = a.semester_id
             WHERE a.id IN ({placeholders})
             AND a.deleted_at IS NULL
         """, application_ids)
         applications = {row["id"]: row for row in cursor.fetchall()}
+
+        # Filter applications for faculty users
+        if role == ROLE_FACULTY and user_campus_id is not None:
+            filtered_ids = [app_id for app_id, app in applications.items() 
+                          if app.get("campus_id") == user_campus_id]
+            denied_ids = [app_id for app_id in application_ids if app_id not in filtered_ids]
+            for app_id in denied_ids:
+                results.append({
+                    "application_id": app_id,
+                    "status": "error",
+                    "message": "Access denied: campus scope violation"
+                })
+                failed += 1
+            application_ids = filtered_ids
 
         # Fetch grades for all applications
         grades_map = fetch_grades_by_application_ids(cursor, application_ids)
@@ -1193,10 +1284,11 @@ def bulk_evaluate():
 # ============================================
 @evaluations_bp.route('/bulk-recommend', methods=['POST'])
 @jwt_required()
-@admin_required
+@admin_or_faculty_required
 def bulk_recommend():
     """
-    Generate recommendations for multiple applications at once
+    Generate recommendations for multiple applications at once.
+    Faculty users can only generate recommendations for applications from their assigned campus.
     ---
     tags:
       - Evaluations
@@ -1231,6 +1323,7 @@ def bulk_recommend():
         description: Internal server error
     """
     try:
+        claims = get_jwt()
         data = request.get_json()
         application_ids = data.get("application_ids", [])
 
@@ -1252,12 +1345,28 @@ def bulk_recommend():
         connection = get_connection()
         cursor = connection.cursor()
 
+        # Get campus info for faculty filtering
+        role = claims.get("role")
+        user_campus_id = claims.get("campus_id")
+
         results = []
         successful = 0
         failed = 0
 
         for app_id in application_ids:
             try:
+                # Check campus access for faculty users
+                if role == ROLE_FACULTY:
+                    has_access, _ = check_application_campus_access(cursor, app_id, claims)
+                    if not has_access:
+                        results.append({
+                            "application_id": app_id,
+                            "status": "error",
+                            "message": "Access denied: campus scope violation"
+                        })
+                        failed += 1
+                        continue
+
                 # Fetch applicant data
                 cursor.execute(base_applicant_query() + " WHERE semesters.is_active = 1 AND applications.id = %s",
                                (app_id,))
@@ -1363,10 +1472,11 @@ def bulk_recommend():
 # ============================================
 @evaluations_bp.route('/export', methods=['GET'])
 @jwt_required()
-@admin_required
+@admin_or_faculty_required
 def export_applicants():
     """
-    Export applicants data as CSV or JSON
+    Export applicants data as CSV or JSON.
+    Faculty users can only export applications from their assigned campus.
     ---
     tags:
       - Evaluations
@@ -1389,11 +1499,15 @@ def export_applicants():
         description: Internal server error
     """
     try:
+        claims = get_jwt()
         status_filter = request.args.get("status")
         export_format = request.args.get("format", "csv").lower()
 
         connection = get_connection()
         cursor = connection.cursor()
+
+        # Get campus filter for faculty users
+        campus_clause, campus_params = get_campus_filter_clause(claims, "cam")
 
         # Build query with optional status filter
         query = """
@@ -1413,6 +1527,7 @@ def export_applicants():
             JOIN students s ON a.student_id = s.user_id
             LEFT JOIN education_info ei ON ei.student_id = s.user_id AND ei.semester_id = a.semester_id
             LEFT JOIN courses c ON c.course_id = ei.course_id
+            LEFT JOIN campuses cam ON cam.campus_id = ei.campus_id
             LEFT JOIN family_background fb ON fb.student_id = s.user_id
             LEFT JOIN evaluations e ON e.application_id = a.id AND e.deleted_at IS NULL
             LEFT JOIN scholarship_selections ss ON ss.application_id = a.id AND ss.status = 'selected'
@@ -1420,9 +1535,9 @@ def export_applicants():
             JOIN semesters sem ON sem.id = a.semester_id
             WHERE a.deleted_at IS NULL
             AND sem.is_active = 1
-        """
+        """ + campus_clause
 
-        params = []
+        params = campus_params.copy()
         if status_filter:
             query += " AND a.status = %s"
             params.append(status_filter)

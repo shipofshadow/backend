@@ -82,6 +82,29 @@ def get_courses(department_id=None):
             'campus_id': row['campus_id']
         } for row in cursor.fetchall()]
 
+def get_course_by_id(course_id):
+    """Get a single course by ID with its campus information."""
+    conn = get_connection()
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT c.course_id, c.name AS course_name, c.major,
+                   d.department_id, d.name AS department_name, d.campus_id
+            FROM courses c
+            JOIN departments d ON c.department_id = d.department_id
+            WHERE c.course_id = %s
+        """, (course_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'id': row['course_id'],
+                'name': row['course_name'],
+                'major': row['major'],
+                'department_id': row['department_id'],
+                'department_name': row['department_name'],
+                'campus_id': row['campus_id']
+            }
+        return None
+
 def add_course(name, major, department_id):
     conn = get_connection()
     with conn.cursor() as cursor:

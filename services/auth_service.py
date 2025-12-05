@@ -37,7 +37,7 @@ class AuthService:
 
 
                 # JWT tokens
-                claims = {"role": user.role, "username": user.username}
+                claims = {"role": user.role, "username": user.username, "campus_id": user.campus_id}
                 token = create_access_token(identity=str(user.id), additional_claims=claims)
                 refresh_token = create_refresh_token(identity=str(user.id), additional_claims=claims)
 
@@ -48,7 +48,7 @@ class AuthService:
                     "token": token,
                     "refresh_token": refresh_token,
                     "user": user.to_dict(),
-                    "is_admin": user.role in ["admin", "bitress"],
+                    "is_admin": user.role in ["admin", "bitress", "faculty"],
                 }
 
                 return success("Login successful", response_data), 200
