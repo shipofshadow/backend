@@ -48,7 +48,7 @@ class AuthService:
                     "token": token,
                     "refresh_token": refresh_token,
                     "user": user.to_dict(),
-                    "is_admin": user.role == "admin",
+                    "is_admin": user.role in ["admin", "bitress"],
                 }
 
                 return success("Login successful", response_data), 200

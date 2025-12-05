@@ -14,7 +14,7 @@ import time
 from config import Config
 from services.s3_service import s3_service
 from werkzeug.utils import secure_filename
-from utils.decorator import admin_required
+from utils.decorator import bitress_required
 
 ALLOWED_EXTENSIONS = {'zip'}
 
@@ -420,7 +420,7 @@ def safe_remove_file(filepath, max_retries=5, delay=0.5):
 
 
 @backup_bp.route('/api/backup/create', methods=['POST'])
-@admin_required
+@bitress_required
 def create_backup():
     """Create full system backup"""
     backup_path = None
@@ -516,7 +516,7 @@ def create_backup():
 
 
 @backup_bp.route('/api/backup/list', methods=['GET'])
-@admin_required
+@bitress_required
 def list_backups():
     """List all available backups"""
     import gc
@@ -557,7 +557,7 @@ def list_backups():
 
 
 @backup_bp.route('/api/backup/download/<filename>', methods=['GET'])
-@admin_required
+@bitress_required
 def download_backup(filename):
     """Download a backup file"""
     try:
@@ -578,7 +578,7 @@ def download_backup(filename):
 
 
 @backup_bp.route('/api/backup/restore', methods=['POST'])
-@admin_required
+@bitress_required
 def restore_backup():
     """Restore from a backup file"""
     extract_dir = None
@@ -698,7 +698,7 @@ def restore_backup():
 
 
 @backup_bp.route('/api/backup/delete/<filename>', methods=['DELETE'])
-@admin_required
+@bitress_required
 def delete_backup(filename):
     """Delete a backup file"""
     import gc
@@ -736,7 +736,7 @@ def delete_backup(filename):
 
 
 @backup_bp.route('/api/backup/verify/<filename>', methods=['GET'])
-@admin_required
+@bitress_required
 def verify_backup(filename):
     """Verify backup integrity"""
     zip_handle = None
@@ -854,7 +854,7 @@ def test_connection():
 
 
 @backup_bp.route('/api/backup/upload-to-s3/<filename>', methods=['POST'])
-@admin_required
+@bitress_required
 def upload_to_s3(filename):
     """Upload local backup to S3"""
     try:
@@ -881,7 +881,7 @@ def upload_to_s3(filename):
 
 
 @backup_bp.route('/api/backup/s3/list', methods=['GET'])
-@admin_required
+@bitress_required
 def list_s3_backups():
     """List backups stored in S3"""
     try:
@@ -900,7 +900,7 @@ def list_s3_backups():
 
 
 @backup_bp.route('/api/backup/s3/download/<filename>', methods=['POST'])
-@admin_required
+@bitress_required
 def download_from_s3(filename):
     """Download a backup from S3 to local storage"""
     try:
@@ -929,7 +929,7 @@ def download_from_s3(filename):
 
 
 @backup_bp.route('/api/backup/s3/delete/<filename>', methods=['DELETE'])
-@admin_required
+@bitress_required
 def delete_s3_backup(filename):
     """Delete a backup from S3"""
     try:
@@ -955,7 +955,7 @@ def delete_s3_backup(filename):
 
 
 @backup_bp.route('/api/backup/s3/presigned-url/<filename>', methods=['GET'])
-@admin_required
+@bitress_required
 def get_s3_presigned_url(filename):
     """Generate a presigned URL for downloading a backup from S3"""
     try:
@@ -988,7 +988,7 @@ def get_s3_presigned_url(filename):
 
 
 @backup_bp.route('/api/backup/import', methods=['POST'])
-@admin_required
+@bitress_required
 def import_backup():
     """Import a backup file uploaded by user"""
     try:
@@ -1047,7 +1047,7 @@ def import_backup():
 
 
 @backup_bp.route('/api/backup/storage-config', methods=['GET'])
-@admin_required
+@bitress_required
 def get_storage_config():
     """Get current storage configuration (without sensitive keys)"""
     try:

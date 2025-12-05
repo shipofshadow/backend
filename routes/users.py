@@ -1,11 +1,12 @@
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from datetime import datetime
 import re
 
 from storage import get_connection
 from utils.hashing import hash_password
 from utils.utils import generate_avatar
+from utils.decorator import admin_or_bitress_required, bitress_required
 
 users_bp = Blueprint('users', __name__, url_prefix='/api/users/')
 
@@ -92,6 +93,7 @@ def user_exists(user_id):
 # Get all admin users
 @users_bp.route('/', methods=['GET'])
 @jwt_required()
+@admin_or_bitress_required
 def get_admin_users():
     """Get all admin users except deleted ones"""
     try:
@@ -110,7 +112,7 @@ def get_admin_users():
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
                        WHERE u.deleted_at IS NULL
-                         AND u.role = 'admin'
+                         AND u.role IN ('admin', 'bitress')
                        ORDER BY u.id ASC
                        """)
 
@@ -135,6 +137,7 @@ def get_admin_users():
 # Get single user by ID
 @users_bp.route('/<int:user_id>/', methods=['GET'])
 @jwt_required()
+@admin_or_bitress_required
 def get_user(user_id):
     """Get a single user by ID"""
     try:
@@ -188,6 +191,7 @@ def get_user(user_id):
 # Create new admin user
 @users_bp.route('/', methods=['POST'])
 @jwt_required()
+@bitress_required
 def create_user():
     """Create a new admin user"""
     try:
@@ -307,10 +311,18 @@ def create_user():
 # Update user
 @users_bp.route('/<int:user_id>/', methods=['PUT'])
 @jwt_required()
+@admin_or_bitress_required
 def update_user(user_id):
     """Update an existing user"""
     try:
         data = request.get_json()
+
+        # Prevent modification of bitress super admin (id = -999)
+        if user_id == -999:
+            return jsonify({
+                'success': False,
+                'message': 'Cannot modify bitress super admin account'
+            }), 403
 
         # Check if user exists
         if not user_exists(user_id):
@@ -495,11 +507,19 @@ def update_user(user_id):
 # Delete user (soft delete)
 @users_bp.route('/<int:user_id>/', methods=['DELETE'])
 @jwt_required()
+@bitress_required
 def delete_user(user_id):
     """Soft delete a user"""
     try:
         # Get current user ID from JWT
         current_user_id = get_jwt_identity()
+
+        # Prevent deletion of bitress super admin (id = -999)
+        if user_id == -999:
+            return jsonify({
+                'success': False,
+                'message': 'Cannot delete bitress super admin account'
+            }), 403
 
         # Prevent deletion of primary admin (id = -1)
         if user_id == -1:
@@ -553,6 +573,7 @@ def delete_user(user_id):
 # Restore deleted user
 @users_bp.route('/<int:user_id>/restore/', methods=['PUT'])
 @jwt_required()
+@bitress_required
 def restore_user(user_id):
     """Restore a soft-deleted user"""
     try:
@@ -601,9 +622,17 @@ def restore_user(user_id):
 # Toggle user active status
 @users_bp.route('/<int:user_id>/toggle-status/', methods=['PUT'])
 @jwt_required()
+@admin_or_bitress_required
 def toggle_user_status(user_id):
     """Toggle user active/inactive status"""
     try:
+        # Prevent toggling bitress super admin
+        if user_id == -999:
+            return jsonify({
+                'success': False,
+                'message': 'Cannot modify bitress super admin status'
+            }), 403
+
         # Prevent toggling primary admin
         if user_id == -1:
             return jsonify({
@@ -668,6 +697,7 @@ def toggle_user_status(user_id):
 # Get all deleted users
 @users_bp.route('/deleted/', methods=['GET'])
 @jwt_required()
+@admin_or_bitress_required
 def get_deleted_users():
     """Get all soft-deleted users"""
     try:
