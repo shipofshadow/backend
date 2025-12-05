@@ -119,6 +119,36 @@ class S3Service:
         except ClientError:
             return None
 
+    def generate_presigned_url(self, s3_key: str, expiration: int = 3600, 
+                                operation: str = 'get_object') -> Optional[str]:
+        """
+        Generate a presigned URL for accessing a private S3 object.
+        
+        Args:
+            s3_key: The S3 object key
+            expiration: URL expiration time in seconds (default: 1 hour)
+            operation: The S3 operation ('get_object' for download, 'put_object' for upload)
+        
+        Returns:
+            Presigned URL string or None if failed
+        """
+        if not self.enabled:
+            raise RuntimeError("S3 is not enabled")
+
+        try:
+            url = self.client.generate_presigned_url(
+                ClientMethod=operation,
+                Params={
+                    'Bucket': self.bucket,
+                    'Key': s3_key
+                },
+                ExpiresIn=expiration
+            )
+            return url
+        except ClientError as e:
+            logger.error(f"S3 presigned URL generation error: {e}")
+            raise
+
 
 # Singleton instance
 s3_service = S3Service()

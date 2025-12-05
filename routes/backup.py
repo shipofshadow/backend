@@ -954,6 +954,39 @@ def delete_s3_backup(filename):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@backup_bp.route('/api/backup/s3/presigned-url/<filename>', methods=['GET'])
+@admin_required
+def get_s3_presigned_url(filename):
+    """Generate a presigned URL for downloading a backup from S3"""
+    try:
+        if not s3_service.enabled:
+            return jsonify({"success": False, "error": "S3 is not configured"}), 400
+
+        if not is_valid_filename(filename):
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+
+        s3_key = f"backups/{filename}"
+
+        if not s3_service.file_exists(s3_key):
+            return jsonify({"success": False, "error": "Backup not found in S3"}), 404
+
+        # Get expiration from query param, default to 1 hour (3600 seconds)
+        expiration = request.args.get('expiration', 3600, type=int)
+        # Limit expiration to max 7 days (604800 seconds)
+        expiration = min(expiration, 604800)
+
+        presigned_url = s3_service.generate_presigned_url(s3_key, expiration=expiration)
+
+        return jsonify({
+            "success": True,
+            "url": presigned_url,
+            "filename": filename,
+            "expires_in": expiration
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @backup_bp.route('/api/backup/import', methods=['POST'])
 @admin_required
 def import_backup():
