@@ -1027,6 +1027,15 @@ def bulk_evaluate():
         if not isinstance(application_ids, list):
             return jsonify({"error": "application_ids must be a list"}), 400
 
+        # Validate all items are integers and limit the batch size
+        MAX_BATCH_SIZE = 100
+        if len(application_ids) > MAX_BATCH_SIZE:
+            return jsonify({"error": f"Maximum batch size is {MAX_BATCH_SIZE} applications"}), 400
+
+        # Validate all items are integers
+        if not all(isinstance(app_id, int) for app_id in application_ids):
+            return jsonify({"error": "All application_ids must be integers"}), 400
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -1230,6 +1239,15 @@ def bulk_recommend():
 
         if not isinstance(application_ids, list):
             return jsonify({"error": "application_ids must be a list"}), 400
+
+        # Validate all items are integers and limit the batch size
+        MAX_BATCH_SIZE = 100
+        if len(application_ids) > MAX_BATCH_SIZE:
+            return jsonify({"error": f"Maximum batch size is {MAX_BATCH_SIZE} applications"}), 400
+
+        # Validate all items are integers
+        if not all(isinstance(app_id, int) for app_id in application_ids):
+            return jsonify({"error": "All application_ids must be integers"}), 400
 
         connection = get_connection()
         cursor = connection.cursor()
