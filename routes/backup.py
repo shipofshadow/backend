@@ -12,6 +12,15 @@ import pymysql
 import time
 
 from config import Config
+from services.s3_service import s3_service
+from werkzeug.utils import secure_filename
+
+ALLOWED_EXTENSIONS = {'zip'}
+
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 backup_bp = Blueprint('backup', __name__)
 
@@ -428,6 +437,7 @@ def create_backup():
         backup_name = data.get('name', f"backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
         include_files = data.get('include_files', True)
         description = data.get('description', '')
+        upload_to_s3_flag = data.get('upload_to_s3', False)
 
         backup_path = BACKUP_DIR / backup_name
         backup_path.mkdir(exist_ok=True)
@@ -480,6 +490,18 @@ def create_backup():
 
         time.sleep(0.5)
         safe_remove_dir(backup_path)
+
+        # Auto-upload to S3 if enabled
+        if upload_to_s3_flag and s3_service.enabled:
+            try:
+                s3_key = f"backups/{backup_name}.zip"
+                s3_service.upload_file(str(zip_path), s3_key)
+                metadata['s3_key'] = s3_key
+                metadata['s3_uploaded'] = True
+            except Exception as e:
+                print(f"S3 upload failed: {e}")
+                metadata['s3_uploaded'] = False
+                metadata['s3_error'] = str(e)
 
         return jsonify({
             "success": True,
@@ -835,3 +857,183 @@ def test_connection():
             "success": False,
             "error": str(e)
         }), 500
+
+
+@backup_bp.route('/api/backup/upload-to-s3/<filename>', methods=['POST'])
+@admin_required
+def upload_to_s3(filename):
+    """Upload local backup to S3"""
+    try:
+        if not s3_service.enabled:
+            return jsonify({"success": False, "error": "S3 is not configured"}), 400
+
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+
+        local_path = BACKUP_DIR / filename
+        if not local_path.exists():
+            return jsonify({"success": False, "error": "Backup not found"}), 404
+
+        s3_key = f"backups/{filename}"
+        s3_service.upload_file(str(local_path), s3_key)
+
+        return jsonify({
+            "success": True,
+            "message": "Backup uploaded to S3 successfully",
+            "s3_key": s3_key
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@backup_bp.route('/api/backup/s3/list', methods=['GET'])
+@admin_required
+def list_s3_backups():
+    """List backups stored in S3"""
+    try:
+        if not s3_service.enabled:
+            return jsonify({"success": False, "error": "S3 is not configured"}), 400
+
+        files = s3_service.list_files(prefix="backups/")
+
+        return jsonify({
+            "success": True,
+            "backups": files,
+            "total": len(files)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@backup_bp.route('/api/backup/s3/download/<filename>', methods=['POST'])
+@admin_required
+def download_from_s3(filename):
+    """Download a backup from S3 to local storage"""
+    try:
+        if not s3_service.enabled:
+            return jsonify({"success": False, "error": "S3 is not configured"}), 400
+
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+
+        s3_key = f"backups/{filename}"
+
+        if not s3_service.file_exists(s3_key):
+            return jsonify({"success": False, "error": "Backup not found in S3"}), 404
+
+        local_path = BACKUP_DIR / filename
+        s3_service.download_file(s3_key, str(local_path))
+
+        return jsonify({
+            "success": True,
+            "message": "Backup downloaded from S3 successfully",
+            "filename": filename,
+            "size": local_path.stat().st_size
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@backup_bp.route('/api/backup/s3/delete/<filename>', methods=['DELETE'])
+@admin_required
+def delete_s3_backup(filename):
+    """Delete a backup from S3"""
+    try:
+        if not s3_service.enabled:
+            return jsonify({"success": False, "error": "S3 is not configured"}), 400
+
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify({"success": False, "error": "Invalid filename"}), 400
+
+        s3_key = f"backups/{filename}"
+
+        if not s3_service.file_exists(s3_key):
+            return jsonify({"success": False, "error": "Backup not found in S3"}), 404
+
+        s3_service.delete_file(s3_key)
+
+        return jsonify({
+            "success": True,
+            "message": "Backup deleted from S3 successfully"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@backup_bp.route('/api/backup/import', methods=['POST'])
+@admin_required
+def import_backup():
+    """Import a backup file uploaded by user"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"success": False, "error": "No file provided"}), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
+
+        if not allowed_file(file.filename):
+            return jsonify({"success": False, "error": "Only ZIP files are allowed"}), 400
+
+        # Generate unique filename
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        original_filename = secure_filename(file.filename)
+        filename = f"imported_{timestamp}_{original_filename}"
+
+        save_path = BACKUP_DIR / filename
+        file.save(save_path)
+
+        # Verify it's a valid backup
+        try:
+            with zipfile.ZipFile(save_path, 'r') as zf:
+                files = zf.namelist()
+                has_sql = any(f.endswith('.sql') for f in files)
+
+                if not has_sql:
+                    os.remove(save_path)
+                    return jsonify({
+                        "success": False,
+                        "error": "Invalid backup: No SQL file found"
+                    }), 400
+
+                # Try to read metadata
+                metadata = None
+                if 'metadata.json' in files:
+                    with zf.open('metadata.json') as mf:
+                        metadata = json.load(mf)
+        except zipfile.BadZipFile:
+            os.remove(save_path)
+            return jsonify({"success": False, "error": "Invalid ZIP file"}), 400
+
+        return jsonify({
+            "success": True,
+            "message": "Backup imported successfully",
+            "backup": {
+                "filename": filename,
+                "size": save_path.stat().st_size,
+                "metadata": metadata
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@backup_bp.route('/api/backup/storage-config', methods=['GET'])
+@admin_required
+def get_storage_config():
+    """Get current storage configuration (without sensitive keys)"""
+    try:
+        return jsonify({
+            "success": True,
+            "config": {
+                "s3_enabled": s3_service.enabled,
+                "s3_bucket": Config.S3_BUCKET if s3_service.enabled else None,
+                "s3_region": Config.S3_REGION if s3_service.enabled else None,
+                "s3_endpoint": Config.S3_ENDPOINT if s3_service.enabled and Config.S3_ENDPOINT else None,
+                "local_backup_dir": str(BACKUP_DIR.absolute()),
+                "local_backup_exists": BACKUP_DIR.exists()
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500

@@ -35,11 +35,12 @@ class Config:
     FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_APP_ID")
     FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_APP_SECRET")
 
-    S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
-    S3_BUCKET = os.getenv("S3_BUCKET")
-    S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
-    S3_REGION = os.getenv("S3_REGION")
-    S3_ENDPOINT = os.getenv("S3_ENDPOINT")
+    S3_ENABLED = os.getenv('S3_ENABLED', 'false').lower() == 'true'
+    S3_BUCKET = os.getenv("S3_BUCKET", "")
+    S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
+    S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
+    S3_REGION = os.getenv("S3_REGION", "us-east-1")
+    S3_ENDPOINT = os.getenv("S3_ENDPOINT", "")
 
 
 
