@@ -20,3 +20,13 @@ def send_password_reset_email(to_email, context):
     msg.html = render_template("password_reset_email.html", **context)
     mail.send(msg)
     return True
+
+def send_application_reminder_email(to_email, context):
+    """Send scholarship application reminder email"""
+    msg = Message(
+        subject="📚 Apply for Scholarships - iScholar",
+        recipients=[to_email]
+    )
+    msg.html = render_template("application_reminder_email.html", **context)
+    mail.send(msg)
+    return True
