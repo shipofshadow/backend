@@ -14,6 +14,7 @@ import time
 from config import Config
 from services.s3_service import s3_service
 from werkzeug.utils import secure_filename
+from utils.decorator import admin_required
 
 ALLOWED_EXTENSIONS = {'zip'}
 
@@ -410,19 +411,6 @@ def safe_remove_file(filepath, max_retries=5, delay=0.5):
                 print(f"Failed to remove file after {max_retries} attempts")
                 return False
     return False
-
-
-def admin_required(f):
-    """Decorator to ensure only admins can access"""
-
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        if not token:
-            return jsonify({"success": False, "error": "No token provided"}), 401
-        return f(*args, **kwargs)
-
-    return decorated
 
 
 @backup_bp.route('/api/backup/create', methods=['POST'])
