@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from utils.decorator import admin_or_bitress_required, bitress_required
+from utils.decorator import admin_required, bitress_required
 from services.settings_service import (
     get_all_system_settings,
     get_setting,
@@ -15,7 +15,7 @@ settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
 
 @settings_bp.route('/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@bitress_required
 def get_settings():
     """
     Get all system configuration settings.
@@ -50,7 +50,7 @@ def update_settings():
 
 @settings_bp.route('/<config_name>', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@bitress_required
 def get_single_setting(config_name):
     """
     Get a single setting value.
@@ -88,7 +88,7 @@ def update_single_setting(config_name):
 
 @settings_bp.route('/upload-avatar', methods=['POST'])
 @jwt_required()
-@admin_or_bitress_required
+@bitress_required
 def upload_avatar():
     """
     Upload avatar image endpoint.

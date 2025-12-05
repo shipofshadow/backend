@@ -6,7 +6,7 @@ import re
 from storage import get_connection
 from utils.hashing import hash_password
 from utils.utils import generate_avatar
-from utils.decorator import admin_or_bitress_required, bitress_required
+from utils.decorator import admin_required, bitress_required
 
 users_bp = Blueprint('users', __name__, url_prefix='/api/users/')
 
@@ -93,7 +93,7 @@ def user_exists(user_id):
 # Get all admin users
 @users_bp.route('/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@admin_required
 def get_admin_users():
     """Get all admin users except deleted ones"""
     try:
@@ -135,9 +135,9 @@ def get_admin_users():
 
 
 # Get single user by ID
-@users_bp.route('/<int:user_id>/', methods=['GET'])
+@users_bp.route('/<signed_int:user_id>/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@admin_required
 def get_user(user_id):
     """Get a single user by ID"""
     try:
@@ -309,9 +309,9 @@ def create_user():
 
 
 # Update user
-@users_bp.route('/<int:user_id>/', methods=['PUT'])
+@users_bp.route('/<signed_int:user_id>/', methods=['PUT'])
 @jwt_required()
-@admin_or_bitress_required
+@admin_required
 def update_user(user_id):
     """Update an existing user"""
     try:
@@ -505,7 +505,7 @@ def update_user(user_id):
 
 
 # Delete user (soft delete)
-@users_bp.route('/<int:user_id>/', methods=['DELETE'])
+@users_bp.route('/<signed_int:user_id>/', methods=['DELETE'])
 @jwt_required()
 @bitress_required
 def delete_user(user_id):
@@ -620,9 +620,9 @@ def restore_user(user_id):
 
 
 # Toggle user active status
-@users_bp.route('/<int:user_id>/toggle-status/', methods=['PUT'])
+@users_bp.route('/<signed_int:user_id>/toggle-status/', methods=['PUT'])
 @jwt_required()
-@admin_or_bitress_required
+@admin_required
 def toggle_user_status(user_id):
     """Toggle user active/inactive status"""
     try:
@@ -697,7 +697,7 @@ def toggle_user_status(user_id):
 # Get all deleted users
 @users_bp.route('/deleted/', methods=['GET'])
 @jwt_required()
-@admin_or_bitress_required
+@admin_required
 def get_deleted_users():
     """Get all soft-deleted users"""
     try:
