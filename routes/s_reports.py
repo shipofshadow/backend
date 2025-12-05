@@ -1133,13 +1133,13 @@ def get_period_comparison():
                 COUNT(DISTINCT CASE WHEN app.status = 'pending' THEN app.id END) as pending_applications,
                 AVG(e.gwa) as average_gwa,
                 AVG(e.income) as average_income,
-                COALESCE(SUM(ss.awarded_amount), 0) as total_awarded,
-                COUNT(DISTINCT CASE WHEN ss.status = 'selected' THEN ss.id END) as number_of_scholars
+                COALESCE(SUM(CASE WHEN ss.status = 'selected' THEN ss.awarded_amount ELSE 0 END), 0) as total_awarded,
+                COUNT(DISTINCT CASE WHEN ss.status = 'selected' THEN app.id END) as number_of_scholars
             FROM semesters sem
             JOIN academic_years ay ON sem.academic_year_id = ay.id
             LEFT JOIN applications app ON app.semester_id = sem.id AND app.deleted_at IS NULL
             LEFT JOIN evaluations e ON e.application_id = app.id
-            LEFT JOIN scholarship_selections ss ON ss.application_id = app.id AND ss.status = 'selected'
+            LEFT JOIN scholarship_selections ss ON ss.application_id = app.id
             WHERE sem.id = %s
             GROUP BY sem.id, sem.name, ay.year_start, ay.year_end
         """
