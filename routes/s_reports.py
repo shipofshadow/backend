@@ -1068,8 +1068,6 @@ def get_active_period():
             ay.year_end,
             sem.name as semester_name,
             sem.id as semester_id,
-            sem.start_date,
-            sem.end_date,
             sem.is_active
         FROM semesters sem
         JOIN academic_years ay ON sem.academic_year_id = ay.id
@@ -1089,8 +1087,8 @@ def get_active_period():
         "semester": result['semester_name'],
         "semesterId": result['semester_id'],
         "semesterName": result['semester_name'],
-        "startDate": result['start_date'].isoformat() if result['start_date'] else None,
-        "endDate": result['end_date'].isoformat() if result['end_date'] else None,
+        "startDate": None,
+        "endDate": None,
         "isActive": bool(result['is_active'])
     })
 
