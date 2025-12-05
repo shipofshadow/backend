@@ -95,7 +95,7 @@ def user_exists(user_id):
 @jwt_required()
 @admin_or_bitress_required
 def get_admin_users():
-    """Get all admin users except deleted ones"""
+    """Get all admin users including faculty, except deleted ones"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -103,16 +103,19 @@ def get_admin_users():
                        SELECT u.id,
                               u.username,
                               u.role,
+                              u.campus_id,
                               u.is_active,
                               u.created_at,
                               ud.first_name,
                               ud.last_name,
                               ud.email,
-                              ud.avatar
+                              ud.avatar,
+                              c.name as campus_name
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
+                                LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.deleted_at IS NULL
-                         AND u.role IN ('admin', 'bitress')
+                         AND u.role IN ('admin', 'bitress', 'faculty')
                        ORDER BY u.id ASC
                        """)
 
@@ -153,14 +156,17 @@ def get_user(user_id):
                        SELECT u.id,
                               u.username,
                               u.role,
+                              u.campus_id,
                               u.is_active,
                               u.created_at,
                               ud.first_name,
                               ud.last_name,
                               ud.email,
-                              ud.avatar
+                              ud.avatar,
+                              c.name as campus_name
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
+                                LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.id = %s
                          AND u.deleted_at IS NULL
                        """, (user_id,))
@@ -193,7 +199,7 @@ def get_user(user_id):
 @jwt_required()
 @bitress_required
 def create_user():
-    """Create a new admin user"""
+    """Create a new admin or faculty user"""
     try:
         data = request.get_json()
         print(data)
@@ -255,16 +261,24 @@ def create_user():
         # Get additional fields
         is_active = data.get('isActive', True)
         role = data.get('role', 'admin')
+        campus_id = data.get('campusId') or data.get('campus_id')
         now = datetime.now()
+
+        # Validate faculty users must have a campus_id
+        if role == 'faculty' and not campus_id:
+            return jsonify({
+                'success': False,
+                'message': 'Faculty users must have a campus assignment'
+            }), 400
 
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Insert into users table
+        # Insert into users table with campus_id
         cursor.execute("""
-                       INSERT INTO users (username, password, role, is_active, created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s)
-                       """, (data['username'], hashed_password, role, is_active, now, now))
+                       INSERT INTO users (username, password, role, campus_id, is_active, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)
+                       """, (data['username'], hashed_password, role, campus_id, is_active, now, now))
         next_id = cursor.lastrowid
         # Insert into user_details table
         cursor.execute("""
@@ -279,14 +293,17 @@ def create_user():
                        SELECT u.id,
                               u.username,
                               u.role,
+                              u.campus_id,
                               u.is_active,
                               u.created_at,
                               ud.first_name,
                               ud.last_name,
                               ud.email,
-                              ud.avatar
+                              ud.avatar,
+                              c.name as campus_name
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
+                                LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.id = %s
                        """, (next_id,))
 
@@ -297,7 +314,7 @@ def create_user():
 
         return jsonify({
             'success': True,
-            'message': 'Admin user created successfully',
+            'message': 'User created successfully',
             'user': result
         }), 201
 
@@ -365,6 +382,23 @@ def update_user(user_id):
                     'message': 'Password must be at least 8 characters'
                 }), 400
 
+        # Validate faculty users must have a campus_id
+        role = data.get('role')
+        campus_id = data.get('campusId') or data.get('campus_id')
+        if role == 'faculty' and campus_id is None:
+            # Check if user already has a campus_id
+            conn_check = get_connection()
+            cursor_check = conn_check.cursor()
+            cursor_check.execute("SELECT campus_id FROM users WHERE id = %s", (user_id,))
+            existing = cursor_check.fetchone()
+            cursor_check.close()
+            conn_check.close()
+            if existing and existing.get('campus_id') is None:
+                return jsonify({
+                    'success': False,
+                    'message': 'Faculty users must have a campus assignment'
+                }), 400
+
         conn = get_connection()
         cursor = conn.cursor()
 
@@ -384,6 +418,10 @@ def update_user(user_id):
         if 'role' in data:
             user_updates.append("role = %s")
             user_params.append(data['role'])
+
+        if 'campusId' in data or 'campus_id' in data:
+            user_updates.append("campus_id = %s")
+            user_params.append(campus_id)
 
         if 'isActive' in data:
             user_updates.append("is_active = %s")
@@ -471,15 +509,18 @@ def update_user(user_id):
                        SELECT u.id,
                               u.username,
                               u.role,
+                              u.campus_id,
                               u.is_active,
                               u.created_at,
                               u.updated_at,
                               ud.first_name,
                               ud.last_name,
                               ud.email,
-                              ud.avatar
+                              ud.avatar,
+                              c.name as campus_name
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
+                                LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.id = %s
                        """, (user_id,))
 
@@ -699,7 +740,7 @@ def toggle_user_status(user_id):
 @jwt_required()
 @admin_or_bitress_required
 def get_deleted_users():
-    """Get all soft-deleted users"""
+    """Get all soft-deleted users including faculty"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -707,17 +748,20 @@ def get_deleted_users():
                        SELECT u.id,
                               u.username,
                               u.role,
+                              u.campus_id,
                               u.is_active,
                               u.created_at,
                               u.deleted_at,
                               ud.first_name,
                               ud.last_name,
                               ud.email,
-                              ud.avatar
+                              ud.avatar,
+                              c.name as campus_name
                        FROM users u
                                 LEFT JOIN user_details ud ON u.id = ud.user_id
+                                LEFT JOIN campuses c ON u.campus_id = c.campus_id
                        WHERE u.deleted_at IS NOT NULL
-                         AND u.role = 'admin'
+                         AND u.role IN ('admin', 'faculty')
                        ORDER BY u.deleted_at DESC
                        """)
 
