@@ -32,6 +32,7 @@ from routes.settings import settings_bp
 from routes.users import users_bp
 from routes.potential_applicants import potential_applicants_bp
 from routes.system import system_bp
+from routes.alerts import alerts_bp
 from utils.response import error
 from werkzeug.routing import BaseConverter
 
@@ -103,6 +104,7 @@ app.register_blueprint(announcement_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(potential_applicants_bp)
 app.register_blueprint(system_bp)
+app.register_blueprint(alerts_bp, strict_slashes=False)
 # Swagger
 swagger = Swagger(app)
 # Routes

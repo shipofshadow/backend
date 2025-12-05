@@ -132,6 +132,20 @@ def create_scholarship():
                            """, (scholarship_id, json.dumps(config)))
 
         conn.commit()
+
+        # Trigger matching for new active scholarships (async, non-blocking)
+        is_active = int(data.get('is_active', 1))
+        trigger_matching = data.get('trigger_matching', True)
+        if is_active and trigger_matching:
+            try:
+                from services.scholarship_alert_service import trigger_scholarship_matching
+                # Run matching in background (fire and forget for now)
+                # In production, this should be a Celery task
+                trigger_scholarship_matching(scholarship_id, send_notifications=True)
+            except Exception as e:
+                # Log but don't fail the creation
+                print(f"[WARNING] Failed to trigger matching for scholarship {scholarship_id}: {e}")
+
         return jsonify({
             "message": "Scholarship created successfully",
             "scholarship_id": scholarship_id
@@ -359,3 +373,73 @@ def get_scholarship(scholarship_id):
     finally:
         cursor.close()
         conn.close()
+
+
+# POST trigger matching for a specific scholarship
+@scholarships_bp.route('/<int:scholarship_id>/trigger-matching', methods=['POST'])
+@jwt_required()
+def trigger_matching(scholarship_id):
+    """
+    Trigger scholarship matching for a specific scholarship against all eligible students.
+    This is an admin endpoint to manually trigger matching for existing scholarships.
+    ---
+    tags:
+      - Scholarships
+    security:
+      - jwt: []
+    parameters:
+      - name: scholarship_id
+        in: path
+        type: integer
+        required: true
+        description: The scholarship ID
+      - name: body
+        in: body
+        required: false
+        schema:
+          type: object
+          properties:
+            send_notifications:
+              type: boolean
+              description: Whether to send notifications for high-match students
+              default: true
+    responses:
+      200:
+        description: Matching results
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            matches:
+              type: integer
+            high_matches:
+              type: integer
+            notifications_sent:
+              type: integer
+      404:
+        description: Scholarship not found
+      500:
+        description: Internal server error
+    """
+    try:
+        from services.scholarship_alert_service import trigger_scholarship_matching
+        
+        data = request.get_json() or {}
+        send_notifications = data.get('send_notifications', True)
+        
+        result = trigger_scholarship_matching(
+            scholarship_id=scholarship_id,
+            send_notifications=send_notifications
+        )
+        
+        if result.get("success"):
+            return jsonify(result), 200
+        else:
+            if result.get("error") == "Scholarship not found":
+                return jsonify(result), 404
+            return jsonify(result), 400
+            
+    except Exception as e:
+        print(f"[ERROR] trigger_matching: {e}")
+        return jsonify({"error": "Failed to trigger matching"}), 500

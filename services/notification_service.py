@@ -15,6 +15,7 @@ NOTIFICATION_TYPES = {
     'application_denied': 'Application Denied',
     'scholarship_awarded': 'Scholarship Awarded',
     'scholarship_recommended': 'Scholarship Recommended',
+    'scholarship_match_alert': 'New Scholarship Match',
     'system_announcement': 'System Announcement',
     'deadline_reminder': 'Deadline Reminder',
     'new_application': 'New Application',
@@ -139,6 +140,8 @@ def create_notification(
             )
         elif message_type == 'scholarship_recommended':
             socketio.emit("scholarship_recommended", realtime_data, room=str(user_id))
+        elif message_type == 'scholarship_match_alert':
+            socketio.emit("scholarship_match_alert", realtime_data, room=str(user_id))
         elif message_type == 'system_announcement':
             socketio.emit("system_announcement", realtime_data, room=str(user_id))
 

@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import math
 
 from utils.utils import safe_json_parse
@@ -10,7 +10,7 @@ class RecommendationService:
     def __init__(self, cursor):
         self.cursor = cursor
 
-    def recommend(self, applicant_data: Dict, evaluation_data: Dict) -> List[Dict]:
+    def recommend(self, applicant_data: Dict, evaluation_data: Dict, include_match_explanation: bool = True) -> List[Dict]:
         self.cursor.execute("""
                             SELECT s.id, s.name, s.description, sr.config, s.grant_amount
                             FROM scholarships s
@@ -36,12 +36,12 @@ class RecommendationService:
                 continue
 
             if eligibility_check["eligible"]:
-                # Calculate scholarship-specific score
-                scholarship_score = self.calculate_scholarship_score_enhanced(
+                # Calculate scholarship-specific score with breakdown
+                score_result = self.calculate_scholarship_score_with_breakdown(
                     evaluation_data["score"], config, applicant_data, evaluation_data
                 )
 
-                scholarship_score = round(scholarship_score * 100, 2)
+                scholarship_score = round(score_result["total"] * 100, 2)
 
                 recommendation = {
                     "scholarship_id": scholarship_id,
@@ -53,11 +53,319 @@ class RecommendationService:
                     "classification": evaluation_data["classification"],
                     "reasons": eligibility_check["reasons"]
                 }
+
+                # Add match explanation if requested
+                if include_match_explanation:
+                    recommendation["match_explanation"] = self.generate_match_explanation(
+                        applicant_data, evaluation_data, config, score_result, scholarship_score
+                    )
+
                 recommendations.append(recommendation)
 
         recommendations.sort(key=lambda x: (-x["score"], x["name"]))
 
         return recommendations
+
+    def recommend_for_scholarship(self, scholarship_id: int, applicant_data: Dict, evaluation_data: Dict) -> Optional[Dict]:
+        """
+        Check if a specific scholarship matches the applicant and return recommendation details.
+        Used for matching new scholarships against existing students.
+        """
+        self.cursor.execute("""
+                            SELECT s.id, s.name, s.description, sr.config, s.grant_amount
+                            FROM scholarships s
+                                     JOIN scholarship_rules sr ON s.id = sr.scholarship_id
+                            WHERE s.id = %s
+                              AND s.is_active = 1
+                              AND s.deleted_at IS NULL
+                            """, (scholarship_id,))
+
+        scholarship = self.cursor.fetchone()
+        if not scholarship:
+            return None
+
+        config = safe_json_parse(scholarship['config'])
+
+        # Check eligibility
+        eligibility_check = self.check_scholarship_eligibility_enhanced(
+            evaluation_data, applicant_data, config
+        )
+
+        # Check priority requirements (hard filters)
+        if not self.check_priority_requirements(applicant_data, config):
+            return None
+
+        if not eligibility_check["eligible"]:
+            return None
+
+        # Calculate scholarship-specific score with breakdown
+        score_result = self.calculate_scholarship_score_with_breakdown(
+            evaluation_data["score"], config, applicant_data, evaluation_data
+        )
+
+        scholarship_score = round(score_result["total"] * 100, 2)
+
+        return {
+            "scholarship_id": scholarship_id,
+            "name": scholarship['name'],
+            "description": scholarship['description'][:100] + '...' if len(
+                scholarship['description']) > 100 else scholarship['description'],
+            "amount": scholarship['grant_amount'],
+            "score": scholarship_score,
+            "classification": evaluation_data["classification"],
+            "reasons": eligibility_check["reasons"],
+            "match_explanation": self.generate_match_explanation(
+                applicant_data, evaluation_data, config, score_result, scholarship_score
+            )
+        }
+
+    @staticmethod
+    def generate_match_explanation(applicant_data: Dict, evaluation_data: Dict,
+                                   config: Dict, score_breakdown: Dict, total_score: float) -> Dict:
+        """
+        Generate a detailed explanation of why a scholarship matches a student.
+        Analyzes score components and categorizes factors by impact level.
+        """
+        gwa = evaluation_data["gwa"]
+        income = evaluation_data["income"]
+
+        # Generate summary based on score
+        if total_score >= 85:
+            summary = "You're an excellent match for this scholarship"
+        elif total_score >= 70:
+            summary = "You're a strong match for this scholarship"
+        elif total_score >= 60:
+            summary = "You're a good match for this scholarship"
+        else:
+            summary = "You meet the basic requirements for this scholarship"
+
+        # Build strength factors
+        strength_factors = []
+
+        # Academic Performance Factor
+        academic_score = score_breakdown.get("academic_fit_raw", 0.5)
+        academic_percent = round(academic_score * 100)
+        min_gwa = config.get("min_gwa")
+        max_gwa = config.get("max_gwa")
+
+        if min_gwa is not None or max_gwa is not None:
+            if academic_score >= 0.8:
+                impact = "high"
+            elif academic_score >= 0.5:
+                impact = "medium"
+            else:
+                impact = "low"
+
+            if min_gwa is not None and max_gwa is not None:
+                description = f"Your GWA of {gwa} is within the required range of {min_gwa}-{max_gwa}"
+            elif min_gwa is not None:
+                description = f"Your GWA of {gwa} exceeds the minimum requirement of {min_gwa}"
+            else:
+                description = f"Your GWA of {gwa} meets the maximum requirement of {max_gwa}"
+
+            strength_factors.append({
+                "factor": "Academic Performance",
+                "score": academic_percent,
+                "description": description,
+                "impact": impact
+            })
+
+        # Financial Need Factor
+        financial_score = score_breakdown.get("financial_fit_raw", 0.5)
+        financial_percent = round(financial_score * 100)
+        min_income = config.get("min_income")
+        max_income = config.get("max_income")
+
+        if min_income is not None or max_income is not None:
+            if financial_score >= 0.8:
+                impact = "high"
+            elif financial_score >= 0.5:
+                impact = "medium"
+            else:
+                impact = "low"
+
+            if max_income is not None:
+                description = f"Your family income of ₱{income:,.0f} is within the priority range (max: ₱{max_income:,.0f})"
+            elif min_income is not None:
+                description = f"Your family income of ₱{income:,.0f} meets the minimum requirement of ₱{min_income:,.0f}"
+            else:
+                description = f"Your family income of ₱{income:,.0f} qualifies for financial consideration"
+
+            strength_factors.append({
+                "factor": "Financial Need",
+                "score": financial_percent,
+                "description": description,
+                "impact": impact
+            })
+
+        # Program Fit Factor
+        program_score = score_breakdown.get("program_fit_raw", 0.5)
+        program_percent = round(program_score * 100)
+
+        preferred_courses = config.get("preferred_course_ids", [])
+        preferred_departments = config.get("preferred_department_ids", [])
+        preferred_campuses = config.get("preferred_campus_ids", [])
+
+        if preferred_courses or preferred_departments or preferred_campuses:
+            if program_score >= 0.8:
+                impact = "high"
+            elif program_score >= 0.5:
+                impact = "medium"
+            else:
+                impact = "low"
+
+            fit_details = []
+            if preferred_courses and applicant_data.get("course_id") in preferred_courses:
+                fit_details.append("course")
+            if preferred_departments and applicant_data.get("department_id") in preferred_departments:
+                fit_details.append("department")
+            if preferred_campuses and applicant_data.get("campus_id") in preferred_campuses:
+                fit_details.append("campus")
+
+            if fit_details:
+                description = f"Your {', '.join(fit_details)} matches the scholarship preferences"
+            else:
+                description = "Your program partially matches the scholarship preferences"
+
+            strength_factors.append({
+                "factor": "Program Fit",
+                "score": program_percent,
+                "description": description,
+                "impact": impact
+            })
+
+        # Build bonus factors
+        bonus_factors = []
+        priorities = config.get("priorities", {})
+        bonus_weights = config.get("priority_bonus_weights", {})
+
+        if priorities.get("prefer_ofw") or priorities.get("must_be_ofw"):
+            if applicant_data.get("is_ofw"):
+                bonus = bonus_weights.get("ofw_bonus", 0.3)
+                bonus_factors.append({
+                    "factor": "OFW Family",
+                    "points": round(bonus * 100),
+                    "description": "This scholarship prioritizes children of OFW families"
+                })
+
+        if priorities.get("prefer_farmers_child"):
+            if applicant_data.get("is_farmers_child"):
+                bonus = bonus_weights.get("farmers_bonus", 0.25)
+                bonus_factors.append({
+                    "factor": "Farmer's Child",
+                    "points": round(bonus * 100),
+                    "description": "This scholarship prioritizes children of farmers"
+                })
+
+        if priorities.get("prefer_pwd"):
+            if applicant_data.get("is_pwd"):
+                bonus = bonus_weights.get("pwd_bonus", 0.25)
+                bonus_factors.append({
+                    "factor": "PWD",
+                    "points": round(bonus * 100),
+                    "description": "This scholarship prioritizes persons with disabilities"
+                })
+
+        if priorities.get("prefer_ip") or priorities.get("require_ip"):
+            if applicant_data.get("is_ip"):
+                bonus = bonus_weights.get("ip_bonus", 0.3)
+                bonus_factors.append({
+                    "factor": "Indigenous Person",
+                    "points": round(bonus * 100),
+                    "description": "This scholarship prioritizes indigenous students"
+                })
+
+        if priorities.get("prefer_4ps"):
+            if applicant_data.get("is_4ps"):
+                bonus = bonus_weights.get("4ps_bonus", 0.2)
+                bonus_factors.append({
+                    "factor": "4Ps Beneficiary",
+                    "points": round(bonus * 100),
+                    "description": "This scholarship prioritizes 4Ps beneficiaries"
+                })
+
+        # Build score breakdown
+        score_breakdown_output = {
+            "base_score": round(score_breakdown.get("base_component", 0) * 100, 1),
+            "academic_fit": round(score_breakdown.get("academic_component", 0) * 100, 1),
+            "financial_fit": round(score_breakdown.get("financial_component", 0) * 100, 1),
+            "priority_bonus": round(score_breakdown.get("priority_component", 0) * 100, 1),
+            "program_fit": round(score_breakdown.get("program_component", 0) * 100, 1),
+            "total": total_score
+        }
+
+        return {
+            "summary": summary,
+            "strength_factors": strength_factors,
+            "bonus_factors": bonus_factors,
+            "score_breakdown": score_breakdown_output
+        }
+
+    @staticmethod
+    def calculate_scholarship_score_with_breakdown(base_score: float, config: Dict, applicant_data: Dict,
+                                                   evaluation_data: Dict) -> Dict:
+        """
+        Enhanced scholarship-specific score calculation that returns component breakdown.
+        Same logic as calculate_scholarship_score_enhanced but with detailed breakdown.
+        """
+        # Get scoring weights from config (with defaults)
+        weights = config.get("scoring_weights", {})
+        base_weight = weights.get("base_score", 0.5)
+        academic_weight = weights.get("academic_fit", 0.2)
+        financial_weight = weights.get("financial_fit", 0.15)
+        priority_weight = weights.get("priority_bonus", 0.1)
+        program_weight = weights.get("program_fit", 0.05)
+
+        # Normalize weights to sum to 1.0
+        total_weight = base_weight + academic_weight + financial_weight + priority_weight + program_weight
+        if total_weight > 0:
+            base_weight /= total_weight
+            academic_weight /= total_weight
+            financial_weight /= total_weight
+            priority_weight /= total_weight
+            program_weight /= total_weight
+
+        # Calculate raw scores
+        academic_fit_raw = RecommendationService._calculate_academic_fit(evaluation_data, config)
+        financial_fit_raw = RecommendationService._calculate_financial_fit(evaluation_data, config)
+        priority_bonus_raw = RecommendationService._calculate_priority_bonus(applicant_data, config)
+        program_fit_raw = RecommendationService._calculate_program_fit(applicant_data, config)
+
+        # Calculate weighted components
+        base_component = float(base_score) * base_weight
+        academic_component = academic_fit_raw * academic_weight
+        financial_component = financial_fit_raw * financial_weight
+        priority_component = priority_bonus_raw * priority_weight
+        program_component = program_fit_raw * program_weight
+
+        # Calculate final score
+        final_score = (
+            base_component +
+            academic_component +
+            financial_component +
+            priority_component +
+            program_component
+        )
+
+        # Apply scholarship-specific multipliers if configured
+        multiplier = config.get("score_multiplier", 1.0)
+        final_score *= multiplier
+
+        # Ensure score stays within bounds [0, 1]
+        final_score = max(0.0, min(1.0, round(final_score, 4)))
+
+        return {
+            "total": final_score,
+            "base_component": base_component,
+            "academic_component": academic_component,
+            "financial_component": financial_component,
+            "priority_component": priority_component,
+            "program_component": program_component,
+            "academic_fit_raw": academic_fit_raw,
+            "financial_fit_raw": financial_fit_raw,
+            "priority_bonus_raw": priority_bonus_raw,
+            "program_fit_raw": program_fit_raw
+        }
 
     @staticmethod
     def check_scholarship_eligibility_enhanced(evaluation_data: Dict, applicant_data: Dict, config: Dict) -> Dict:
@@ -186,70 +494,12 @@ class RecommendationService:
                                              evaluation_data: Dict) -> float:
         """
         Enhanced scholarship-specific score calculation with configurable weights and multiple factors.
-
-        Score Components:
-        1. Base eligibility score (40-60% weight)
-        2. Academic performance alignment (15-25% weight)
-        3. Financial need alignment (10-20% weight)
-        4. Priority/preference bonuses (5-15% weight)
-        5. Program/institutional fit (5-10% weight)
+        Returns only the final score. For breakdown, use calculate_scholarship_score_with_breakdown.
         """
-
-        # Get scoring weights from config (with defaults)
-        weights = config.get("scoring_weights", {})
-        base_weight = weights.get("base_score", 0.5)  # 50% default
-        academic_weight = weights.get("academic_fit", 0.2)  # 20% default
-        financial_weight = weights.get("financial_fit", 0.15)  # 15% default
-        priority_weight = weights.get("priority_bonus", 0.1)  # 10% default
-        program_weight = weights.get("program_fit", 0.05)  # 5% default
-
-        # Normalize weights to sum to 1.0
-        total_weight = base_weight + academic_weight + financial_weight + priority_weight + program_weight
-        if total_weight > 0:
-            base_weight /= total_weight
-            academic_weight /= total_weight
-            financial_weight /= total_weight
-            priority_weight /= total_weight
-            program_weight /= total_weight
-
-        # 1. Base score component
-        base_component = float(base_score) * base_weight
-
-        # 2. Academic performance alignment
-        academic_component = RecommendationService._calculate_academic_fit(
-            evaluation_data, config
-        ) * academic_weight
-
-        # 3. Financial need alignment
-        financial_component = RecommendationService._calculate_financial_fit(
-            evaluation_data, config
-        ) * financial_weight
-
-        # 4. Priority/preference bonuses
-        priority_component = RecommendationService._calculate_priority_bonus(
-            applicant_data, config
-        ) * priority_weight
-
-        # 5. Program/institutional fit
-        program_component = RecommendationService._calculate_program_fit(
-            applicant_data, config
-        ) * program_weight
-
-        # Calculate final score
-        final_score = (
-                base_component +
-                academic_component +
-                financial_component +
-                priority_component +
-                program_component
+        result = RecommendationService.calculate_scholarship_score_with_breakdown(
+            base_score, config, applicant_data, evaluation_data
         )
-
-        # Apply scholarship-specific multipliers if configured
-        multiplier = config.get("score_multiplier", 1.0)
-        final_score *= multiplier
-
-        # Ensure score stays within bounds [0, 1]
-        return max(0.0, min(1.0, round(final_score, 4)))
+        return result["total"]
 
     @staticmethod
     def _calculate_academic_fit(evaluation_data: Dict, config: Dict) -> float:
