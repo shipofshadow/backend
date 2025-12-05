@@ -3,8 +3,48 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.decorator import bitress_required
 from storage import get_connection
 import logging
+import re
 
 system_bp = Blueprint('system', __name__, url_prefix='/api/system')
+
+# Whitelist of allowed table names for system reset
+RESET_TABLES = frozenset([
+    'application_reminders',
+    'application_grades',
+    'application_files',
+    'scholarship_selections',
+    'recommended_scholarships',
+    'evaluations',
+    'applications',
+    'education_info',
+    'family_background',
+    'addresses',
+    'students',
+    'social_logins',
+    'password_reset_tokens',
+    'notifications',
+    'announcements',
+    'prequalifications',
+    'prequalification_students',
+    'academic_years',
+    'semesters',
+    'scholarships',
+    'scholarship_rules',
+])
+
+# Tables for preview
+PREVIEW_TABLES = frozenset([
+    'applications', 'students', 'users', 'notifications',
+    'announcements', 'scholarships', 'academic_years', 'semesters'
+])
+
+# Valid table name pattern
+TABLE_NAME_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def is_valid_table_name(table_name, whitelist):
+    """Validate table name against whitelist and pattern"""
+    return table_name in whitelist and TABLE_NAME_PATTERN.match(table_name)
 
 
 @system_bp.route('/reset', methods=['POST'])
@@ -38,45 +78,25 @@ def reset_system():
         # Disable foreign key checks temporarily
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         
-        # Tables to completely clear (order matters due to FK)
-        tables_to_truncate = [
-            'application_reminders',
-            'application_grades',
-            'application_files',
-            'scholarship_selections',
-            'recommended_scholarships',
-            'evaluations',
-            'applications',
-            'education_info',
-            'family_background',
-            'addresses',
-            'students',
-            'social_logins',
-            'password_reset_tokens',
-            'notifications',
-            'announcements',
-            'prequalifications',
-            'prequalification_students',
-            'academic_years',
-            'semesters',
-            'scholarships',
-            'scholarship_rules',
-        ]
-        
         deleted_counts = {}
         
-        for table in tables_to_truncate:
+        for table in RESET_TABLES:
+            # Validate table name before using (defense in depth)
+            if not is_valid_table_name(table, RESET_TABLES):
+                continue
             try:
-                cursor.execute("SELECT COUNT(*) as count FROM `%s`" % table)
+                # Using backticks for identifier quoting - table names are from whitelist
+                cursor.execute("SELECT COUNT(*) as count FROM `" + table + "`")
                 count = cursor.fetchone()['count']
-                cursor.execute("TRUNCATE TABLE `%s`" % table)
+                cursor.execute("TRUNCATE TABLE `" + table + "`")
                 deleted_counts[table] = count
             except Exception:
                 # Table may not exist, skip it
                 deleted_counts[table] = 0
         
-        # Delete users except bitress (id=-999) and admins with negative IDs
-        cursor.execute("SELECT COUNT(*) as count FROM users WHERE id > 0 OR id < -999")
+        # Delete users except admins with negative IDs (includes bitress at -999)
+        # Count only users that will actually be deleted (positive IDs)
+        cursor.execute("SELECT COUNT(*) as count FROM users WHERE id > 0")
         user_count = cursor.fetchone()['count']
         cursor.execute("DELETE FROM users WHERE id > 0")  # Delete all positive ID users (students)
         # Keep negative ID admins including bitress
@@ -133,17 +153,16 @@ def preview_reset():
     try:
         counts = {}
         
-        tables = [
-            'applications', 'students', 'users', 'notifications',
-            'announcements', 'scholarships', 'academic_years', 'semesters'
-        ]
-        
-        for table in tables:
+        for table in PREVIEW_TABLES:
+            # Validate table name before using (defense in depth)
+            if not is_valid_table_name(table, PREVIEW_TABLES):
+                continue
             try:
                 if table == 'users':
                     cursor.execute("SELECT COUNT(*) as count FROM users WHERE id > 0")
                 else:
-                    cursor.execute("SELECT COUNT(*) as count FROM `%s`" % table)
+                    # Using backticks for identifier quoting - table names are from whitelist
+                    cursor.execute("SELECT COUNT(*) as count FROM `" + table + "`")
                 counts[table] = cursor.fetchone()['count']
             except Exception:
                 counts[table] = 0
@@ -198,7 +217,11 @@ def system_info():
         tables = [row[list(row.keys())[0]] for row in cursor.fetchall()]
         
         for table in tables:
-            cursor.execute("SELECT COUNT(*) as count FROM `%s`" % table)
+            # Validate table name pattern to prevent SQL injection
+            if not TABLE_NAME_PATTERN.match(table):
+                continue
+            # Using backticks for identifier quoting - table names from database
+            cursor.execute("SELECT COUNT(*) as count FROM `" + table + "`")
             tables_info[table] = cursor.fetchone()['count']
         
         return jsonify({
