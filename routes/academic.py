@@ -420,9 +420,8 @@ def update_course(course_id):
         if user_campus_id is None:
             return jsonify({"error": "Faculty user must have a campus assignment"}), 403
         
-        # Check if course belongs to user's campus
-        courses = manage_academic.get_courses()
-        course = next((c for c in courses if c['id'] == course_id), None)
+        # Check if course belongs to user's campus (using efficient single lookup)
+        course = manage_academic.get_course_by_id(course_id)
         if course is None or course.get('campus_id') != user_campus_id:
             return jsonify({"error": "Access denied: campus scope violation"}), 403
         
@@ -465,9 +464,8 @@ def delete_course(course_id):
         if user_campus_id is None:
             return jsonify({"error": "Faculty user must have a campus assignment"}), 403
         
-        # Check if course belongs to user's campus
-        courses = manage_academic.get_courses()
-        course = next((c for c in courses if c['id'] == course_id), None)
+        # Check if course belongs to user's campus (using efficient single lookup)
+        course = manage_academic.get_course_by_id(course_id)
         if course is None or course.get('campus_id') != user_campus_id:
             return jsonify({"error": "Access denied: campus scope violation"}), 403
 

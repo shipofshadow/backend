@@ -20,6 +20,9 @@ from utils.decorator import (
     has_campus_access,
     campus_scope_required,
     enforce_faculty_campus_scope,
+)
+from models.user import (
+    User,
     ROLE_ADMIN,
     ROLE_BITRESS,
     ROLE_FACULTY,
@@ -27,7 +30,6 @@ from utils.decorator import (
     UNRESTRICTED_ROLES,
     ADMIN_ROLES
 )
-from models.user import User
 
 
 @pytest.fixture

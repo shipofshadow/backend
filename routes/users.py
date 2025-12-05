@@ -382,25 +382,24 @@ def update_user(user_id):
                     'message': 'Password must be at least 8 characters'
                 }), 400
 
-        # Validate faculty users must have a campus_id
+        # Get role and campus_id from request
         role = data.get('role')
         campus_id = data.get('campusId') or data.get('campus_id')
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # For faculty role validation, check if user already has a campus_id
         if role == 'faculty' and campus_id is None:
-            # Check if user already has a campus_id
-            conn_check = get_connection()
-            cursor_check = conn_check.cursor()
-            cursor_check.execute("SELECT campus_id FROM users WHERE id = %s", (user_id,))
-            existing = cursor_check.fetchone()
-            cursor_check.close()
-            conn_check.close()
+            cursor.execute("SELECT campus_id FROM users WHERE id = %s", (user_id,))
+            existing = cursor.fetchone()
             if existing and existing.get('campus_id') is None:
+                cursor.close()
+                conn.close()
                 return jsonify({
                     'success': False,
                     'message': 'Faculty users must have a campus assignment'
                 }), 400
-
-        conn = get_connection()
-        cursor = conn.cursor()
 
         # Build update query for users table
         user_updates = []

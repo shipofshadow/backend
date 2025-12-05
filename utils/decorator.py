@@ -145,8 +145,11 @@ def campus_scope_required(get_target_campus_id):
                 target_campus_id = kwargs.get(get_target_campus_id)
                 if target_campus_id is None:
                     # Try to get from request args or json
-                    target_campus_id = request.args.get(get_target_campus_id) or \
-                                       (request.json.get(get_target_campus_id) if request.is_json else None)
+                    target_campus_id = request.args.get(get_target_campus_id)
+                    if target_campus_id is None and request.is_json:
+                        json_data = request.get_json(silent=True)
+                        if json_data:
+                            target_campus_id = json_data.get(get_target_campus_id)
             else:
                 target_campus_id = get_target_campus_id
             
