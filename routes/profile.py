@@ -508,3 +508,126 @@ def change_password():
             cursor.close()
         if conn:
             conn.close()
+
+@profile_bp.route('/update', methods=['PUT'])
+@jwt_required()
+def update_profile():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # 1. Update Students Table
+        cursor.execute("""
+            UPDATE students SET 
+                first_name=%s, middle_name=%s, last_name=%s, name_extension=%s,
+                birth_date=%s, civil_status=%s, citizenship=%s, contact_number=%s,
+                updated_at=NOW()
+            WHERE user_id=%s
+        """, (
+            data.get('first_name'), data.get('middle_name'), data.get('last_name'), data.get('extension_name'),
+            data.get('birth_date'), data.get('civil_status'), data.get('citizenship'), data.get('contact_number'),
+            user_id
+        ))
+
+        # 2. Update/Insert Addresses Table
+        # Check if address exists
+        cursor.execute("SELECT id FROM addresses WHERE student_id = %s", (user_id,))
+        address_exists = cursor.fetchone()
+
+        if address_exists:
+            cursor.execute("""
+                           UPDATE addresses
+                           SET street=%s,
+                               barangay_name=%s,
+                               municipality_name=%s,
+                               province_name=%s,
+                               region_name=%s,
+                               barangay_code=%s,
+                               municipality_code=%s,
+                               province_code=%s,
+                               region_code=%s,
+                               zip_code=%s
+                           WHERE student_id = %s
+                           """, (
+                               data.get('street'),
+                               data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
+                               data.get('region_name'),
+                               data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
+                               data.get('region_code'),
+                               data.get('zip_code'),
+                               user_id
+                           ))
+        else:
+            cursor.execute("""
+                           INSERT INTO addresses (student_id, street,
+                                                  barangay_name, municipality_name, province_name, region_name,
+                                                  barangay_code, municipality_code, province_code, region_code,
+                                                  zip_code)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           """, (
+                               user_id, data.get('street'),
+                               data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
+                               data.get('region_name'),
+                               data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
+                               data.get('region_code'),
+                               data.get('zip_code')
+                           ))
+        # 3. Update/Insert Family Background Table
+        cursor.execute("SELECT id FROM family_background WHERE student_id = %s", (user_id,))
+        family_exists = cursor.fetchone()
+
+        if family_exists:
+            cursor.execute("""
+                UPDATE family_background SET 
+                    father_first_name=%s, father_middle_name=%s, father_last_name=%s, father_extension=%s,
+                    father_occupation=%s, father_income=%s,
+                    mother_first_name=%s, mother_middle_name=%s, mother_last_name=%s,
+                    mother_occupation=%s, mother_income=%s,
+                    household_number=%s, siblings=%s, siblings_studying=%s,
+                    ip_affiliation=%s, is_4ps_member=%s,
+                    emergency_contact_name=%s, emergency_contact_number=%s
+                WHERE student_id=%s
+            """, (
+                data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
+                data.get('father_occupation'), data.get('father_income'),
+                data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
+                data.get('mother_occupation'), data.get('mother_income'),
+                data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
+                data.get('ip_affiliation'), data.get('is_4ps_member'),
+                data.get('emergency_contact_name'), data.get('emergency_contact_number'),
+                user_id
+            ))
+        else:
+            cursor.execute("""
+                INSERT INTO family_background (
+                    student_id, father_first_name, father_middle_name, father_last_name, father_extension,
+                    father_occupation, father_income, mother_first_name, mother_middle_name, mother_last_name,
+                    mother_occupation, mother_income, household_number, siblings, siblings_studying,
+                    ip_affiliation, is_4ps_member
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                user_id,
+                data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
+                data.get('father_occupation'), data.get('father_income'),
+                data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
+                data.get('mother_occupation'), data.get('mother_income'),
+                data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
+                data.get('ip_affiliation'), data.get('is_4ps_member')
+            ))
+
+        conn.commit()
+        return jsonify({"message": "Profile updated successfully"}), 200
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Update error: {e}")
+        return jsonify({"message": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
