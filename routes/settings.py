@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from utils.decorator import admin_required, bitress_required
+
 from services.settings_service import (
     get_all_system_settings,
     get_setting,
@@ -8,6 +8,7 @@ from services.settings_service import (
     bulk_update_system_settings,
     get_storage_provider
 )
+from utils.decorator import bitress_required
 from utils.utils import save_avatar, allowed_file
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
@@ -120,5 +121,31 @@ def upload_avatar():
             }), 200
         else:
             return jsonify({"error": "Failed to save avatar"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@settings_bp.route('/public', methods=['GET'])
+def get_public_settings():
+    """
+    Get public system settings (No Auth Required).
+    Used for frontend feature flags like maintenance mode, login options, etc.
+    """
+    try:
+        all_settings = get_all_system_settings()
+
+        # Define explicitly what is safe to share publicly
+        public_keys = [
+            'systemName', 'organizationName', 'supportEmail', 'supportPhone',
+            'isApplicationOpen', 'allowNewRegistrations',
+            'applicationStartDate', 'applicationEndDate',
+            'enableNativeLogin', 'enableGoogleLogin',
+            'maintenanceMode', 'minPasswordLength'
+        ]
+
+        # Filter the settings
+        public_settings = {k: all_settings.get(k) for k in public_keys if k in all_settings}
+
+        return jsonify(public_settings), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
