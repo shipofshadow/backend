@@ -45,16 +45,17 @@ def upload_avatar():
         return jsonify({"error": "Failed to save avatar"}), 500
 
     # Update database based on user role
-    connection = get_connection()
-    cursor = connection.cursor()
+    connection = None
+    cursor = None
 
     try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
         cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
 
         if not user:
-            cursor.close()
-            connection.close()
             return jsonify({"error": "User not found"}), 404
 
         if user['role'] == 'student':
@@ -70,13 +71,15 @@ def upload_avatar():
 
         connection.commit()
     except Exception as e:
-        connection.rollback()
-        cursor.close()
-        connection.close()
+        if connection:
+            connection.rollback()
+        print(f"Error updating avatar in database: {e}")
         return jsonify({"error": "Failed to update avatar in database"}), 500
-
-    cursor.close()
-    connection.close()
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
 
     return jsonify({
         "success": True,
