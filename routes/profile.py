@@ -225,12 +225,14 @@ def get_avatar(filename):
 
     return abort(404, description="Avatar file not found")
 
+
 @profile_bp.route("/complete", methods=["POST"])
 @jwt_required()
 def complete_profile():
     user_id = str(get_jwt_identity())
     data = request.get_json()
 
+    # Extract data
     student_id = data.get("student_id")
     first_name = data.get("first_name")
     last_name = data.get("last_name")
@@ -244,38 +246,48 @@ def complete_profile():
     email = data.get("email")
     avatar = data.get("avatar")
 
+    # Basic Validation
     if not student_id or not first_name or not last_name or not email:
         return jsonify({"error": "student_id, first_name, last_name, and email are required"}), 400
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    # Check if this user already has a student profile
-    cursor.execute("SELECT * FROM students WHERE user_id = %s", (user_id,))
-    existing = cursor.fetchone()
-    if existing:
-        return jsonify({"error": "Profile already exists"}), 400
+    try:
+        # 1. Check if this USER already has a profile
+        cursor.execute("SELECT id FROM students WHERE user_id = %s", (user_id,))
+        if cursor.fetchone():
+            return jsonify({"error": "You already have a student profile."}), 400
 
-    # Insert new student profile
-    cursor.execute("""
-        INSERT INTO students (
-            user_id, student_id, last_name, first_name, middle_name, name_extension,
-            gender, birth_date, citizenship, civil_status, contact_number,
-            email, avatar, created_at, updated_at
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
-    """, (
-        user_id, student_id, last_name, first_name, middle_name, name_extension,
-        gender, birth_date, citizenship, civil_status, contact_number,
-        email, avatar
-    ))
-    connection.commit()
+        # 2. Check if the STUDENT ID is already taken by ANYONE else
+        cursor.execute("SELECT user_id FROM students WHERE student_id = %s", (student_id,))
+        existing_id_holder = cursor.fetchone()
 
-    cursor.close()
-    connection.close()
+        if existing_id_holder:
+            return jsonify({"error": f"The Student ID '{student_id}' is already registered to another account."}), 409
 
-    return jsonify({"message": "Profile completed successfully"}), 201
+        # 3. Insert new student profile if checks pass
+        cursor.execute("""
+                       INSERT INTO students (user_id, student_id, last_name, first_name, middle_name, name_extension,
+                                             gender, birth_date, citizenship, civil_status, contact_number,
+                                             email, avatar, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                       """, (
+                           user_id, student_id, last_name, first_name, middle_name, name_extension,
+                           gender, birth_date, citizenship, civil_status, contact_number,
+                           email, avatar
+                       ))
+        connection.commit()
 
+        return jsonify({"message": "Profile completed successfully"}), 201
+
+    except Exception as e:
+        print(f"Error completing profile: {e}")
+        return jsonify({"error": "An error occurred while creating your profile."}), 500
+
+    finally:
+        cursor.close()
+        connection.close()
 
 @profile_bp.route('/scholarship-status/<int:application_id>', methods=['GET'])
 @jwt_required()
@@ -521,10 +533,10 @@ def update_profile():
     try:
         # 1. Update Students Table
         cursor.execute("""
-            UPDATE students SET 
-                first_name=%s, middle_name=%s, last_name=%s, name_extension=%s,
-                birth_date=%s, civil_status=%s, citizenship=%s, contact_number=%s,
-                updated_at=NOW()
+            UPDATE students SET
+                                first_name=%s,middle_name=%s,last_name=%s,name_extension=%s,
+                                birth_date=%s,civil_status=%s,citizenship=%s,contact_number=%s,
+                                updated_at=NOW()
             WHERE user_id=%s
         """, (
             data.get('first_name'), data.get('middle_name'), data.get('last_name'), data.get('extension_name'),
