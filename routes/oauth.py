@@ -102,7 +102,7 @@ def authorize_facebook():
 
 
 # --- Shared OAuth Handler ---
-def     handle_oauth_user(provider, provider_id, email, first_name, last_name, avatar):
+def handle_oauth_user(provider, provider_id, email, first_name, last_name, avatar):
     """
     Shared function to handle OAuth user authentication for both Google and Facebook
     """
