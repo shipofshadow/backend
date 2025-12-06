@@ -175,7 +175,7 @@ def get_user_data():
             student_profile.pop("password")
         user['profile'] = student_profile
 
-    elif user['role'] == 'admin':
+    else:
         cursor.execute("""
                    SELECT * FROM users 
                              INNER JOIN user_details ON user_details.user_id = users.id 
@@ -531,104 +531,142 @@ def update_profile():
     cursor = conn.cursor()
 
     try:
-        # 1. Update Students Table
-        cursor.execute("""
-            UPDATE students SET
-                                first_name=%s,middle_name=%s,last_name=%s,name_extension=%s,
-                                birth_date=%s,civil_status=%s,citizenship=%s,contact_number=%s,
-                                updated_at=NOW()
-            WHERE user_id=%s
-        """, (
-            data.get('first_name'), data.get('middle_name'), data.get('last_name'), data.get('extension_name'),
-            data.get('birth_date'), data.get('civil_status'), data.get('citizenship'), data.get('contact_number'),
-            user_id
-        ))
 
-        # 2. Update/Insert Addresses Table
-        # Check if address exists
-        cursor.execute("SELECT id FROM addresses WHERE student_id = %s", (user_id,))
-        address_exists = cursor.fetchone()
+        cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+        user_row = cursor.fetchone()
 
-        if address_exists:
-            cursor.execute("""
-                           UPDATE addresses
-                           SET street=%s,
-                               barangay_name=%s,
-                               municipality_name=%s,
-                               province_name=%s,
-                               region_name=%s,
-                               barangay_code=%s,
-                               municipality_code=%s,
-                               province_code=%s,
-                               region_code=%s,
-                               zip_code=%s
-                           WHERE student_id = %s
-                           """, (
-                               data.get('street'),
-                               data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
-                               data.get('region_name'),
-                               data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
-                               data.get('region_code'),
-                               data.get('zip_code'),
-                               user_id
-                           ))
-        else:
-            cursor.execute("""
-                           INSERT INTO addresses (student_id, street,
-                                                  barangay_name, municipality_name, province_name, region_name,
-                                                  barangay_code, municipality_code, province_code, region_code,
-                                                  zip_code)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                           """, (
-                               user_id, data.get('street'),
-                               data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
-                               data.get('region_name'),
-                               data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
-                               data.get('region_code'),
-                               data.get('zip_code')
-                           ))
-        # 3. Update/Insert Family Background Table
-        cursor.execute("SELECT id FROM family_background WHERE student_id = %s", (user_id,))
-        family_exists = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
 
-        if family_exists:
+        role = user_row['role']
+
+        if role == 'student':
+            # 1. Update Students Table
             cursor.execute("""
-                UPDATE family_background SET 
-                    father_first_name=%s, father_middle_name=%s, father_last_name=%s, father_extension=%s,
-                    father_occupation=%s, father_income=%s,
-                    mother_first_name=%s, mother_middle_name=%s, mother_last_name=%s,
-                    mother_occupation=%s, mother_income=%s,
-                    household_number=%s, siblings=%s, siblings_studying=%s,
-                    ip_affiliation=%s, is_4ps_member=%s,
-                    emergency_contact_name=%s, emergency_contact_number=%s
-                WHERE student_id=%s
+                UPDATE students SET
+                                    first_name=%s,middle_name=%s,last_name=%s,name_extension=%s,
+                                    birth_date=%s,civil_status=%s,citizenship=%s,contact_number=%s,
+                                    updated_at=NOW()
+                WHERE user_id=%s
             """, (
-                data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
-                data.get('father_occupation'), data.get('father_income'),
-                data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
-                data.get('mother_occupation'), data.get('mother_income'),
-                data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
-                data.get('ip_affiliation'), data.get('is_4ps_member'),
-                data.get('emergency_contact_name'), data.get('emergency_contact_number'),
+                data.get('first_name'), data.get('middle_name'), data.get('last_name'), data.get('extension_name'),
+                data.get('birth_date'), data.get('civil_status'), data.get('citizenship'), data.get('contact_number'),
                 user_id
             ))
+
+            # 2. Update/Insert Addresses Table
+            # Check if address exists
+            cursor.execute("SELECT id FROM addresses WHERE student_id = %s", (user_id,))
+            address_exists = cursor.fetchone()
+
+            if address_exists:
+                cursor.execute("""
+                               UPDATE addresses
+                               SET street=%s,
+                                   barangay_name=%s,
+                                   municipality_name=%s,
+                                   province_name=%s,
+                                   region_name=%s,
+                                   barangay_code=%s,
+                                   municipality_code=%s,
+                                   province_code=%s,
+                                   region_code=%s,
+                                   zip_code=%s
+                               WHERE student_id = %s
+                               """, (
+                                   data.get('street'),
+                                   data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
+                                   data.get('region_name'),
+                                   data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
+                                   data.get('region_code'),
+                                   data.get('zip_code'),
+                                   user_id
+                               ))
+            else:
+                cursor.execute("""
+                               INSERT INTO addresses (student_id, street,
+                                                      barangay_name, municipality_name, province_name, region_name,
+                                                      barangay_code, municipality_code, province_code, region_code,
+                                                      zip_code)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               """, (
+                                   user_id, data.get('street'),
+                                   data.get('barangay_name'), data.get('municipality_name'), data.get('province_name'),
+                                   data.get('region_name'),
+                                   data.get('barangay_code'), data.get('municipality_code'), data.get('province_code'),
+                                   data.get('region_code'),
+                                   data.get('zip_code')
+                               ))
+            # 3. Update/Insert Family Background Table
+            cursor.execute("SELECT id FROM family_background WHERE student_id = %s", (user_id,))
+            family_exists = cursor.fetchone()
+
+            if family_exists:
+                cursor.execute("""
+                    UPDATE family_background SET 
+                        father_first_name=%s, father_middle_name=%s, father_last_name=%s, father_extension=%s,
+                        father_occupation=%s, father_income=%s,
+                        mother_first_name=%s, mother_middle_name=%s, mother_last_name=%s,
+                        mother_occupation=%s, mother_income=%s,
+                        household_number=%s, siblings=%s, siblings_studying=%s,
+                        ip_affiliation=%s, is_4ps_member=%s,
+                        emergency_contact_name=%s, emergency_contact_number=%s
+                    WHERE student_id=%s
+                """, (
+                    data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
+                    data.get('father_occupation'), data.get('father_income'),
+                    data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
+                    data.get('mother_occupation'), data.get('mother_income'),
+                    data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
+                    data.get('ip_affiliation'), data.get('is_4ps_member'),
+                    data.get('emergency_contact_name'), data.get('emergency_contact_number'),
+                    user_id
+                ))
+            else:
+                cursor.execute("""
+                    INSERT INTO family_background (
+                        student_id, father_first_name, father_middle_name, father_last_name, father_extension,
+                        father_occupation, father_income, mother_first_name, mother_middle_name, mother_last_name,
+                        mother_occupation, mother_income, household_number, siblings, siblings_studying,
+                        ip_affiliation, is_4ps_member
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    user_id,
+                    data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
+                    data.get('father_occupation'), data.get('father_income'),
+                    data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
+                    data.get('mother_occupation'), data.get('mother_income'),
+                    data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
+                    data.get('ip_affiliation'), data.get('is_4ps_member')
+                ))
         else:
-            cursor.execute("""
-                INSERT INTO family_background (
-                    student_id, father_first_name, father_middle_name, father_last_name, father_extension,
-                    father_occupation, father_income, mother_first_name, mother_middle_name, mother_last_name,
-                    mother_occupation, mother_income, household_number, siblings, siblings_studying,
-                    ip_affiliation, is_4ps_member
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                user_id,
-                data.get('father_first_name'), data.get('father_middle_name'), data.get('father_last_name'), data.get('father_extension'),
-                data.get('father_occupation'), data.get('father_income'),
-                data.get('mother_first_name'), data.get('mother_middle_name'), data.get('mother_last_name'),
-                data.get('mother_occupation'), data.get('mother_income'),
-                data.get('household_number'), data.get('siblings'), data.get('siblings_studying'),
-                data.get('ip_affiliation'), data.get('is_4ps_member')
-            ))
+            # Update Admin/Faculty/Staff Record (user_details)
+            # Check if user_details record exists first (it should, but safety first)
+            cursor.execute("SELECT user_id FROM user_details WHERE user_id = %s", (user_id,))
+            if cursor.fetchone():
+                cursor.execute("""
+                               UPDATE user_details
+                               SET first_name=%s,
+                                   last_name=%s,
+                                   email=%s
+                               WHERE user_id = %s
+                               """, (
+                                   data.get('first_name'),
+                                   data.get('last_name'),
+                                   data.get('email'),
+                                   user_id
+                               ))
+            else:
+                # Fallback insert if missing
+                cursor.execute("""
+                               INSERT INTO user_details (user_id, first_name, last_name, email)
+                               VALUES (%s, %s, %s, %s)
+                               """, (
+                                   user_id,
+                                   data.get('first_name'),
+                                   data.get('last_name'),
+                                   data.get('email')
+                               ))
 
         conn.commit()
         return jsonify({"message": "Profile updated successfully"}), 200
