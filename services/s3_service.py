@@ -67,16 +67,19 @@ class S3Service:
         """
         Upload a file to S3 with automatic content-type detection and key prefixing.
         
+        This method returns None on any failure (including S3 disabled) to maintain
+        backward compatibility with the original upload_to_s3 function.
+        
         Args:
             local_path: The local file path to upload
             filename: The filename to use for the S3 key (will be prefixed with 'uploads/')
             content_type: Optional content type. If not provided, will be guessed from filename
         
         Returns:
-            The S3 key on success, None on failure
+            The S3 key on success, None on failure (including when S3 is disabled)
         """
         if not self.enabled:
-            logger.error("S3 is not enabled")
+            logger.warning("S3 is not enabled, upload skipped")
             return None
 
         try:
