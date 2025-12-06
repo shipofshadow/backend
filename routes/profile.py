@@ -1,9 +1,11 @@
 import json
+import os
 
-from flask import Blueprint, jsonify, send_from_directory, request
+from flask import Blueprint, jsonify, send_from_directory, request, redirect, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from services.notification_service import create_notification
+from services.s3_service import s3_service
 from utils.hashing import hash_password, verify_password
 from config import UPLOAD_FOLDER
 from routes.scholarship_summary import get_scholarship_summary
@@ -191,14 +193,37 @@ def get_user_data():
 
 @profile_bp.route('/avatar/<path:filename>', methods=['GET'])
 def get_avatar(filename):
-    # Remove any leading 'uploads/' or 'uploads\' to be safe
-    if filename.startswith("uploads/"):
-        filename = filename[len("uploads/"):]
-    elif filename.startswith("uploads\\"):
-        filename = filename[len("uploads\\"):]
+    """
+    Smart Avatar Retrieval:
+    1. Normalize filename & prevent path traversal
+    2. Serve locally if exists
+    3. If not, redirect to S3 presigned URL
+    """
 
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    # Normalize & sanitize filename
+    safe_filename = os.path.basename(filename)
 
+    # Remove any accidental "uploads/" prefix (front-end issues)
+    if safe_filename.startswith("uploads/"):
+        safe_filename = safe_filename[len("uploads/"):]
+    elif safe_filename.startswith("uploads\\"):
+        safe_filename = safe_filename[len("uploads\\"):]
+
+    # Local path
+    local_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+
+    # Serve locally if exists
+    if os.path.exists(local_path):
+        return send_from_directory(UPLOAD_FOLDER, safe_filename)
+
+    # Fallback: get S3 key and generate presigned URL
+    s3_key = s3_service.get_s3_key(safe_filename)
+    secure_url = s3_service.generate_presigned_url(s3_key)
+
+    if secure_url:
+        return redirect(secure_url)
+
+    return abort(404, description="Avatar file not found")
 
 @profile_bp.route("/complete", methods=["POST"])
 @jwt_required()
