@@ -2,18 +2,19 @@ import json
 import os
 import re
 import uuid
-import subprocess
-import requests
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, Union
-from io import BytesIO
 
-from werkzeug.utils import secure_filename
-from werkzeug.datastructures import FileStorage
+import requests
 from PIL import Image
-from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG, Config
+from werkzeug.datastructures import FileStorage
+from werkzeug.utils import secure_filename
+
+from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG
 from services.s3_service import s3_service
 from .avatar_generator import create_initials_avatar
+
+from services.settings_service import get_storage_provider
 
 
 def allowed_file(filename):
@@ -43,7 +44,9 @@ def save_file(file, user_id, file_type):
             pass
 
     # 3. Check Storage Provider
-    if getattr(Config, 'STORAGE_PROVIDER', 's3') == 's3':
+    storage_provider = get_storage_provider()
+
+    if storage_provider == 's3':
         # Upload to Private S3
         stored_key = s3_service.upload_file_with_content_type(path, filename)
 
@@ -59,7 +62,6 @@ def save_file(file, user_id, file_type):
 
 def generate_avatar(name):
     """Generate an initials-based avatar and save based on storage provider setting."""
-    from services.settings_service import get_storage_provider
 
     img = create_initials_avatar(name)
     unique_id = uuid.uuid4().hex
