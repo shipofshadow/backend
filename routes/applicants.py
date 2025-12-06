@@ -6,17 +6,18 @@ from flask_jwt_extended import jwt_required
 
 from config import Config
 from services.notification_service import create_notification, notify_student_application_status
+from services.s3_service import s3_service
 from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from utils.applications import get_application
 from utils.decorator import admin_required
-from utils.utils import generate_presigned_url
 
 applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
 
 
 @applicants_bp.route('/files/<path:filename>', methods=['GET'])
+@jwt_required()
 def get_uploaded_file(filename):
     """
     Smart File Retrieval:
@@ -30,7 +31,8 @@ def get_uploaded_file(filename):
     if os.path.exists(local_path):
         return send_from_directory(UPLOAD_FOLDER, safe_filename)
 
-    secure_url = generate_presigned_url(filename)
+    s3_key = s3_service.get_s3_key(filename)
+    secure_url = s3_service.generate_presigned_url(s3_key)
 
     if secure_url:
         return redirect(secure_url)
@@ -83,12 +85,15 @@ def get_all_qualified_applicants():
 
 
 @applicants_bp.route("/pending", methods=["GET"])
+@jwt_required()
 def get_pending_applicants():
     """
     Get all applicants with status 'pending'.
     ---
     tags:
       - Applicants
+    security:
+      - jwt: []
     responses:
       200:
         description: List of pending applicants
@@ -225,12 +230,15 @@ AND s.id NOT IN (
 
 
 @applicants_bp.route('/<int:applicantId>', methods=['GET'])
+@jwt_required()
 def get_applicant_by_id(applicantId):
     """
     Get detailed information about an applicant by application ID.
     ---
     tags:
       - Applicants
+    security:
+      - jwt: []
     parameters:
       - in: path
         name: applicantId

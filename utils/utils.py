@@ -12,62 +12,13 @@ from werkzeug.utils import secure_filename
 from werkzeug.datastructures import FileStorage
 from PIL import Image
 from config import ALLOWED_EXTENSIONS, UPLOAD_FOLDER, SCHOLARSHIP_CONFIG, Config
-from storage import s3_client
+from services.s3_service import s3_service
 from .avatar_generator import create_initials_avatar
 
 
 def allowed_file(filename):
     return '.' in filename and \
         filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-def get_s3_key(filename):
-    """Ensure consistency in naming keys (e.g., adds uploads/ prefix if missing)"""
-    if filename.startswith("uploads/"):
-        return filename
-    return f"uploads/{filename}"
-
-
-def generate_presigned_url(filename, expiration=3600):
-    """Generates a temporary public URL for a private S3 file."""
-    try:
-        key = get_s3_key(filename)
-        url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': Config.S3_BUCKET, 'Key': key},
-            ExpiresIn=expiration
-        )
-        return url
-    except Exception as e:
-        print(f"Error generating presigned URL: {e}")
-        return None
-
-
-def upload_to_s3(local_path, filename, content_type=None):
-    """Uploads to Private S3 Bucket"""
-    try:
-        bucket = Config.S3_BUCKET
-        key = get_s3_key(filename)
-
-        # Determine content type
-        if not content_type:
-            import mimetypes
-            content_type, _ = mimetypes.guess_type(local_path)
-
-        extra_args = {}
-        if content_type:
-            extra_args['ContentType'] = content_type
-
-        # REMOVED: ExtraArgs={'ACL': 'public-read'} (Because bucket is private)
-
-        s3_client.upload_file(local_path, bucket, key, ExtraArgs=extra_args)
-
-        # Return the KEY (path), not the URL. The URL is generated on demand.
-        return key
-
-    except Exception as e:
-        print(f"S3 Upload Error: {e}")
-        return None
 
 
 def save_file(file, user_id, file_type):
@@ -94,7 +45,7 @@ def save_file(file, user_id, file_type):
     # 3. Check Storage Provider
     if getattr(Config, 'STORAGE_PROVIDER', 's3') == 's3':
         # Upload to Private S3
-        stored_key = upload_to_s3(path, filename)
+        stored_key = s3_service.upload_file_with_content_type(path, filename)
 
         # Clean up local file
         try:
@@ -120,7 +71,7 @@ def generate_avatar(name):
 
     if storage_provider == 's3':
         # Upload to S3
-        stored_key = upload_to_s3(path, filename)
+        stored_key = s3_service.upload_file_with_content_type(path, filename)
         # Clean up local file
         try:
             os.remove(path)
@@ -247,7 +198,7 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
     # Check storage provider and save accordingly
     if storage_provider == 's3':
         # Upload to S3
-        stored_key = upload_to_s3(path, filename)
+        stored_key = s3_service.upload_file_with_content_type(path, filename)
 
         # Clean up local file
         try:

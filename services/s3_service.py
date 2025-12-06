@@ -1,5 +1,6 @@
-"""S3 Storage Service for backup management"""
+"""S3 Storage Service - Single source of truth for all S3 operations"""
 import logging
+import mimetypes
 import os
 from typing import Optional
 
@@ -33,6 +34,22 @@ class S3Service:
             )
         return self._client
 
+    def get_s3_key(self, filename: str, prefix: str = "uploads") -> str:
+        """
+        Ensure consistency in naming keys by adding prefix if missing.
+        
+        Args:
+            filename: The filename or key to process
+            prefix: The prefix to add (default: 'uploads', also supports 'backups')
+        
+        Returns:
+            The properly prefixed S3 key
+        """
+        prefix_with_slash = f"{prefix}/"
+        if filename.startswith(prefix_with_slash):
+            return filename
+        return f"{prefix_with_slash}{filename}"
+
     def upload_file(self, local_path: str, s3_key: str) -> bool:
         """Upload a file to S3"""
         if not self.enabled:
@@ -44,6 +61,47 @@ class S3Service:
         except ClientError as e:
             logger.error(f"S3 upload error: {e}")
             raise
+
+    def upload_file_with_content_type(self, local_path: str, filename: str, 
+                                       content_type: Optional[str] = None) -> Optional[str]:
+        """
+        Upload a file to S3 with automatic content-type detection and key prefixing.
+        
+        This method returns None on any failure (including S3 disabled) to maintain
+        backward compatibility with the original upload_to_s3 function.
+        
+        Args:
+            local_path: The local file path to upload
+            filename: The filename to use for the S3 key (will be prefixed with 'uploads/')
+            content_type: Optional content type. If not provided, will be guessed from filename
+        
+        Returns:
+            The S3 key on success, None on failure (including when S3 is disabled)
+        """
+        if not self.enabled:
+            logger.warning("S3 is not enabled, upload skipped")
+            return None
+
+        try:
+            s3_key = self.get_s3_key(filename)
+
+            # Determine content type if not provided
+            if not content_type:
+                content_type, _ = mimetypes.guess_type(local_path)
+
+            extra_args = {}
+            if content_type:
+                extra_args['ContentType'] = content_type
+
+            self.client.upload_file(local_path, self.bucket, s3_key, ExtraArgs=extra_args)
+            return s3_key
+
+        except ClientError as e:
+            logger.error(f"S3 upload error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"S3 upload error: {e}")
+            return None
 
     def download_file(self, s3_key: str, local_path: str) -> bool:
         """Download a file from S3"""
