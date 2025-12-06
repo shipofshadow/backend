@@ -10,8 +10,80 @@ from routes.scholarship_summary import get_scholarship_summary
 from storage import get_connection
 from services.application_service import base_applicant_query, fetch_grades_by_application_id
 from utils.response import error
+from utils.utils import save_avatar
 
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
+
+
+@profile_bp.route('/upload-avatar', methods=['POST'])
+@jwt_required()
+def upload_avatar():
+    """
+    Upload avatar image for the current user.
+    Works for both students and admins.
+    """
+    user_id = get_jwt_identity()
+
+    if 'avatar' not in request.files:
+        return jsonify({"error": "No avatar file provided"}), 400
+
+    avatar_file = request.files['avatar']
+
+    if avatar_file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+    if not ('.' in avatar_file.filename and
+            avatar_file.filename.rsplit('.', 1)[1].lower() in allowed_extensions):
+        return jsonify({"error": "Invalid file type. Allowed: png, jpg, jpeg, gif"}), 400
+
+    # Save avatar using existing utility (handles S3/local storage)
+    result = save_avatar(avatar_file, str(user_id))
+
+    if not result:
+        return jsonify({"error": "Failed to save avatar"}), 500
+
+    # Update database based on user role
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+
+        if not user:
+            cursor.close()
+            connection.close()
+            return jsonify({"error": "User not found"}), 404
+
+        if user['role'] == 'student':
+            cursor.execute(
+                "UPDATE students SET avatar = %s WHERE user_id = %s",
+                (result, user_id)
+            )
+        else:  # admin, super_admin, faculty, bitress
+            cursor.execute(
+                "UPDATE user_details SET avatar = %s WHERE user_id = %s",
+                (result, user_id)
+            )
+
+        connection.commit()
+    except Exception as e:
+        connection.rollback()
+        cursor.close()
+        connection.close()
+        return jsonify({"error": "Failed to update avatar in database"}), 500
+
+    cursor.close()
+    connection.close()
+
+    return jsonify({
+        "success": True,
+        "avatar": result,
+        "message": "Avatar uploaded successfully"
+    }), 200
+
 
 @profile_bp.route("/scholarship/summary", methods=["GET"])
 @jwt_required()
