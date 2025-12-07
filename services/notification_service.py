@@ -8,7 +8,10 @@ from storage import get_connection
 
 logger = logging.getLogger(__name__)
 
-# Valid notification types
+# ==========================================
+# 1. CONFIGURATION & CONSTANTS
+# ==========================================
+
 NOTIFICATION_TYPES = {
     'application_submitted': 'Application Submitted',
     'application_approved': 'Application Approved',
@@ -20,13 +23,16 @@ NOTIFICATION_TYPES = {
     'deadline_reminder': 'Deadline Reminder',
     'new_application': 'New Application',
     'document_required': 'Document Required',
-    'payment_processed': 'Payment Processed',
     'profile_updated': 'Profile Updated',
     'password_changed': 'Password Changed'
 }
 
 PRIORITY_LEVELS = ['low', 'normal', 'high', 'urgent']
 
+
+# ==========================================
+# 2. CORE ENGINE (CREATE & EMIT)
+# ==========================================
 
 def create_notification(
         user_id: int,
@@ -40,19 +46,6 @@ def create_notification(
 ) -> int:
     """
     Create a new notification and send real-time update
-
-    Args:
-        user_id: Target user ID
-        message_type: Type of notification (must be in NOTIFICATION_TYPES)
-        title: Notification title
-        message: Notification message
-        metadata: Additional data as JSON
-        priority: Priority level (low, normal, high, urgent)
-        expires_at: Optional expiration datetime
-        action_url: Optional URL for action button
-
-    Returns:
-        int: Created notification ID
     """
     try:
         # Validate inputs
@@ -95,14 +88,7 @@ def create_notification(
 
         # Get the created notification for real-time emission
         cursor.execute("""
-                       SELECT id,
-                              type,
-                              title,
-                              message,
-                              metadata,
-                              priority,
-                              action_url,
-                              created_at
+                       SELECT id, type, title, message, metadata, priority, action_url, created_at
                        FROM notifications
                        WHERE id = %s
                        """, (notification_id,))
@@ -124,20 +110,18 @@ def create_notification(
             "timestamp": datetime.now().isoformat()
         }
 
-        # Send real-time notification
-        socketio.emit(
-            "notification",
-            realtime_data,
-            room=str(user_id)
-        )
+        # 1. Emit generic notification
+        socketio.emit("notification", realtime_data, room=str(user_id))
 
-        # Send specific event based on type
-        if message_type in ['application_approved', 'application_denied']:
+        # 2. Emit specific events
+        if message_type in ['application_approved', 'application_denied', 'application_returned', 'application_evaluated']:
             socketio.emit(
                 "application_status_changed",
                 {**realtime_data, "status": message_type.replace('application_', '')},
                 room=str(user_id)
             )
+        elif message_type == 'new_application':
+            socketio.emit("new_application_submitted", realtime_data, room=str(user_id))
         elif message_type == 'scholarship_recommended':
             socketio.emit("scholarship_recommended", realtime_data, room=str(user_id))
         elif message_type == 'system_announcement':
@@ -150,6 +134,215 @@ def create_notification(
         logger.error(f"Error creating notification: {str(e)}")
         raise
 
+# ==========================================
+# 3. EVENT EMITTERS (SPECIFIC TRIGGERS)
+# ==========================================
+
+def notify_student_application_status(application_id: int, status: str, remarks: Optional[str] = None):
+    """Send notification when application status changes"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Get application and student details
+        cursor.execute("""
+                       SELECT a.student_id, st.first_name, st.last_name, sem.name as semester_name
+                       FROM applications a
+                                JOIN students st ON a.student_id = st.user_id
+                                JOIN users s ON st.user_id = s.id
+                                JOIN semesters sem ON a.semester_id = sem.id
+                       WHERE a.id = %s
+                       """, (application_id,))
+
+        app_data = cursor.fetchone()
+        cursor.close()
+        connection.close()
+
+        if not app_data:
+            raise ValueError(f"Application {application_id} not found")
+
+        # Prepare notification content
+        status_messages = {
+            'approved': {
+                'title': '✅ Application Approved!',
+                'message': f'Your scholarship application for {app_data["semester_name"]} has been approved.'
+            },
+            'denied': {
+                'title': '❌ Application Denied',
+                'message': f'Your scholarship application for {app_data["semester_name"]} has been denied.'
+            },
+            'pending': {
+                'title': '⏳ Application Under Review',
+                'message': f'Your scholarship application for {app_data["semester_name"]} is being reviewed.'
+            },
+            'returned': {
+                'title': '⚠️ Action Required: Application Returned',
+                'message': f'Your application for {app_data["semester_name"]} has been returned for revision.'
+            },
+             'evaluated': {
+                'title': '⏳ Application Evaluated',
+                'message': f'Your scholarship application for {app_data["semester_name"]} has been evaluated.'
+            },
+        }
+
+        notification_content = status_messages.get(status, {
+            'title': f'Application Status: {status.title()}',
+            'message': f'Your application status has been updated to {status}.'
+        })
+
+        if remarks:
+            notification_content['message'] += f' Remarks: {remarks}'
+
+        return create_notification(
+            user_id=app_data["student_id"],
+            message_type=f'application_{status}',
+            title=notification_content['title'],
+            message=notification_content['message'],
+            metadata={
+                'application_id': application_id,
+                'status': status,
+                'remarks': remarks,
+                'semester': app_data["semester_name"]
+            },
+            action_url=f'/applicant/application/{application_id}',
+            priority='high' if status in ['approved', 'denied'] else 'normal'
+        )
+
+    except Exception as e:
+        logger.error(f"Error sending application status notification: {str(e)}")
+        raise
+
+
+def notify_scholarship_recommendation(application_id: int, scholarship_id: int, score: float):
+    """Send notification when scholarship is recommended"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Get details
+        cursor.execute("""
+                       SELECT a.student_id,
+                              s.name as scholarship_name,
+                              s.grant_amount,
+                              st.first_name,
+                              st.last_name
+                       FROM applications a
+                                JOIN recommended_scholarships rs ON a.id = rs.application_id
+                                JOIN scholarships s ON rs.scholarship_id = s.id
+                                JOIN students st ON a.student_id = st.id
+                                JOIN users u ON st.user_id = u.id
+                       WHERE a.id = %s
+                         AND s.id = %s
+                       """, (application_id, scholarship_id))
+
+        data = cursor.fetchone()
+        cursor.close()
+        connection.close()
+
+        if not data:
+            raise ValueError(f"Recommendation data not found")
+
+        return create_notification(
+            user_id=data["student_id"],
+            message_type='scholarship_recommended',
+            title='🎓 Scholarship Recommended!',
+            message=f'You have been recommended for the {data["scholarship_name"]} scholarship (₱{data["grant_amount"]:,.2f}) with a score of {score:.1f}%.',
+            metadata={
+                'application_id': application_id,
+                'scholarship_id': scholarship_id,
+                'scholarship_name': data["scholarship_name"],
+                'grant_amount': data["grant_amount"],
+                'score': score
+            },
+            priority='high',
+            action_url=f'/student/applications/{application_id}'
+        )
+
+    except Exception as e:
+        logger.error(f"Error sending scholarship recommendation notification: {str(e)}")
+        raise
+
+
+def notify_admin(message: str, title: str = "Admin Notification", metadata: Optional[Dict] = None) -> List[int]:
+    """Send notification to all admin users"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Get all active admin users
+        cursor.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
+        admin_users = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        notification_ids = []
+        for admin in admin_users:
+            notif_id = create_notification(
+                user_id=admin["id"],
+                message_type="system_announcement",
+                title=title,
+                message=message,
+                metadata=metadata,
+                priority="high"
+            )
+            notification_ids.append(notif_id)
+
+        logger.info(f"Sent admin notification to {len(notification_ids)} admins")
+        return notification_ids
+
+    except Exception as e:
+        logger.error(f"Error sending admin notification: {str(e)}")
+        raise
+
+
+def notify_admin_new_application(
+        application_id: int,
+        student_info: Dict,
+        application_data: Dict,
+) -> Dict:
+    """Notify administrators about new application submission."""
+    try:
+        metadata = {
+            "application_id": application_id,
+            "student_id": student_info.get("student_id"),
+            "student_name": f"{student_info.get('firstname', '')} {student_info.get('lastname', '')}".strip(),
+            "email": student_info.get("email"),
+            "contact_number": student_info.get("contact_number"),
+            "submission_timestamp": datetime.now().isoformat(),
+            "semester": application_data.get("semester_name", "Unknown"),
+            "academic_year": application_data.get("academic_year", "Unknown"),
+            "priority": "normal",
+            "category": "new_application"
+        }
+
+        message = f"New scholarship application submitted by {metadata['student_name']}"
+
+        admin_ids = notify_admin(
+            message=message.strip(),
+            title=f"New Application #{application_id}",
+            metadata=metadata
+        )
+
+        return {
+            "success": True,
+            "admin_count": len(admin_ids),
+            "admin_ids": admin_ids,
+            "message": "Notification sent successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to send admin notification: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "admin_count": 0
+        }
+
+
+# ==========================================
+# 4. CRUD OPERATIONS (READ, UPDATE, DELETE)
+# ==========================================
 
 def get_user_notifications(
         user_id: int,
@@ -240,6 +433,71 @@ def get_user_notifications(
         raise
 
 
+def get_notification_stats(user_id: int) -> Dict[str, Any]:
+    """Get notification statistics for a user"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Overall stats
+        cursor.execute("""
+                       SELECT COUNT(*)                                as total,
+                              COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread,
+                              COUNT(CASE WHEN is_read = 1 THEN 1 END) as read,
+                              COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
+                              COUNT(CASE WHEN priority = 'high' THEN 1 END) as high
+                       FROM notifications
+                       WHERE user_id = %s AND (expires_at IS NULL OR expires_at > NOW())
+                       """, (user_id,))
+
+        overall = cursor.fetchone()
+
+        # By type
+        cursor.execute("""
+                       SELECT type,
+                              COUNT(*) as count,
+                              COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread
+                       FROM notifications
+                       WHERE user_id = %s AND (expires_at IS NULL OR expires_at > NOW())
+                       GROUP BY type
+                       ORDER BY count DESC
+                       """, (user_id,))
+
+        by_type = cursor.fetchall()
+
+        # Recent activity (last 7 days)
+        cursor.execute("""
+                       SELECT DATE (created_at) as date, COUNT (*) as count
+                       FROM notifications
+                       WHERE user_id = %s AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                       GROUP BY DATE (created_at)
+                       ORDER BY date DESC
+                       """, (user_id,))
+
+        recent_activity = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        # Process recent activity for chart data
+        activity_data = []
+        for activity in recent_activity:
+            activity_data.append({
+                "date": activity["date"].isoformat(),
+                "count": activity["count"]
+            })
+
+        return {
+            "overall": dict(overall),
+            "by_type": [dict(row) for row in by_type],
+            "recent_activity": activity_data
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting notification stats for user {user_id}: {str(e)}")
+        raise
+
+
 def mark_notification_read(notification_id: int, user_id: int) -> bool:
     """Mark a specific notification as read"""
     try:
@@ -323,282 +581,3 @@ def delete_notification(notification_id: int, user_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error deleting notification {notification_id}: {str(e)}")
         raise
-
-
-def get_notification_stats(user_id: int) -> Dict[str, Any]:
-    """Get notification statistics for a user"""
-    try:
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        # Overall stats
-        cursor.execute("""
-                       SELECT COUNT(*)                                as total,
-                              COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread,
-                              COUNT(CASE WHEN is_read = 1 THEN 1 END) as read,
-                COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent,
-                COUNT(CASE WHEN priority = 'high' THEN 1 END) as high
-                       FROM notifications
-                       WHERE user_id = %s AND (expires_at IS NULL OR expires_at > NOW())
-                       """, (user_id,))
-
-        overall = cursor.fetchone()
-
-        # By type
-        cursor.execute("""
-                       SELECT type,
-                              COUNT(*) as count,
-                   COUNT(CASE WHEN is_read = 0 THEN 1 END) as unread
-                       FROM notifications
-                       WHERE user_id = %s AND (expires_at IS NULL OR expires_at > NOW())
-                       GROUP BY type
-                       ORDER BY count DESC
-                       """, (user_id,))
-
-        by_type = cursor.fetchall()
-
-        # Recent activity (last 7 days)
-        cursor.execute("""
-                       SELECT DATE (created_at) as date, COUNT (*) as count
-                       FROM notifications
-                       WHERE user_id = %s AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                       GROUP BY DATE (created_at)
-                       ORDER BY date DESC
-                       """, (user_id,))
-
-        recent_activity = cursor.fetchall()
-
-        cursor.close()
-        connection.close()
-
-        # Process recent activity for chart data
-        activity_data = []
-        for activity in recent_activity:
-            activity_data.append({
-                "date": activity["date"].isoformat(),
-                "count": activity["count"]
-            })
-
-        return {
-            "overall": dict(overall),
-            "by_type": [dict(row) for row in by_type],
-            "recent_activity": activity_data
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting notification stats for user {user_id}: {str(e)}")
-        raise
-
-
-def notify_admin(message: str, title: str = "Admin Notification", metadata: Optional[Dict] = None) -> List[int]:
-    """Send notification to all admin users"""
-    try:
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        # Get all active admin users
-        cursor.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
-        admin_users = cursor.fetchall()
-
-        cursor.close()
-        connection.close()
-
-        notification_ids = []
-        for admin in admin_users:
-            notif_id = create_notification(
-                user_id=admin["id"],
-                message_type="system_announcement",
-                title=title,
-                message=message,
-                metadata=metadata,
-                priority="high"
-            )
-            notification_ids.append(notif_id)
-
-        logger.info(f"Sent admin notification to {len(notification_ids)} admins")
-        return notification_ids
-
-    except Exception as e:
-        logger.error(f"Error sending admin notification: {str(e)}")
-        raise
-
-
-def notify_student_application_status(application_id: int, status: str, remarks: Optional[str] = None):
-    """Send notification when application status changes"""
-    try:
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        # Get application and student details
-        cursor.execute("""
-                       SELECT a.student_id, st.first_name, st.last_name, sem.name as semester_name
-                       FROM applications a
-                                JOIN students st ON a.student_id = st.user_id
-                                JOIN users s ON st.user_id = s.id
-                                JOIN semesters sem ON a.semester_id = sem.id
-                       WHERE a.id = %s
-                       """, (application_id,))
-
-        app_data = cursor.fetchone()
-        cursor.close()
-        connection.close()
-
-        if not app_data:
-            raise ValueError(f"Application {application_id} not found")
-
-        print(app_data)
-        # Prepare notification content
-        status_messages = {
-            'approved': {
-                'title': '✅ Application Approved!',
-                'message': f'Your scholarship application for {app_data["semester_name"]} has been approved.'
-            },
-            'denied': {
-                'title': '❌ Application Denied',
-                'message': f'Your scholarship application for {app_data["semester_name"]} has been denied.'
-            },
-            'pending': {
-                'title': '⏳ Application Under Review',
-                'message': f'Your scholarship application for {app_data["semester_name"]} is being reviewed.'
-            },
-            'returned': {
-                'title': '⚠️ Action Required: Application Returned',
-                'message': f'Your application for {app_data["semester_name"]} has been returned for revision.'
-            },
-             'evaluated': {
-                'title': '⏳ Application Evaluated',
-                'message': f'Your scholarship application for {app_data["semester_name"]} has been evaluated.'
-            },
-        }
-
-        notification_content = status_messages.get(status, {
-            'title': f'Application Status: {status.title()}',
-            'message': f'Your application status has been updated to {status}.'
-        })
-
-        if remarks:
-            notification_content['message'] += f' Remarks: {remarks}'
-
-        # Send notification
-        return create_notification(
-            user_id=app_data["student_id"],
-            message_type=f'application_{status}',
-            title=notification_content['title'],
-            message=notification_content['message'],
-            metadata={
-                'application_id': application_id,
-                'status': status,
-                'remarks': remarks,
-                'semester': app_data["semester_name"]
-            },
-            action_url=f'/applicant/application/{application_id}',
-            priority='high' if status in ['approved', 'denied'] else 'normal'
-        )
-
-    except Exception as e:
-        logger.error(f"Error sending application status notification: {str(e)}")
-        raise
-
-
-def notify_scholarship_recommendation(application_id: int, scholarship_id: int, score: float):
-    """Send notification when scholarship is recommended"""
-    try:
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        # Get details
-        cursor.execute("""
-                       SELECT a.student_id,
-                              s.name as scholarship_name,
-                              s.grant_amount,
-                              st.first_name,
-                              st.last_name
-                       FROM applications a
-                                JOIN recommended_scholarships rs ON a.id = rs.application_id
-                                JOIN scholarships s ON rs.scholarship_id = s.id
-                                JOIN students st ON a.student_id = st.id
-                                JOIN users u ON st.user_id = u.id
-                       WHERE a.id = %s
-                         AND s.id = %s
-                       """, (application_id, scholarship_id))
-
-        data = cursor.fetchone()
-        cursor.close()
-        connection.close()
-
-        if not data:
-            raise ValueError(f"Recommendation data not found")
-
-        return create_notification(
-            user_id=data["student_id"],
-            message_type='scholarship_recommended',
-            title='🎓 Scholarship Recommended!',
-            message=f'You have been recommended for the {data["scholarship_name"]} scholarship (₱{data["grant_amount"]:,.2f}) with a score of {score:.1f}%.',
-            metadata={
-                'application_id': application_id,
-                'scholarship_id': scholarship_id,
-                'scholarship_name': data["scholarship_name"],
-                'grant_amount': data["grant_amount"],
-                'score': score
-            },
-            priority='high',
-            action_url=f'/student/applications/{application_id}'
-        )
-
-    except Exception as e:
-        logger.error(f"Error sending scholarship recommendation notification: {str(e)}")
-        raise
-
-
-def notify_admin_new_application(
-        application_id: int,
-        student_info: Dict,
-        application_data: Dict,
-) -> Dict:
-    """
-    Notify administrators about new application submission with detailed information.
-    """
-    try:
-        # Prepare notification metadata
-        metadata = {
-            "application_id": application_id,
-            "student_id": student_info.get("student_id"),
-            "student_name": f"{student_info.get('firstname', '')} {student_info.get('lastname', '')}".strip(),
-            "email": student_info.get("email"),
-            "contact_number": student_info.get("contact_number"),
-            "submission_timestamp": datetime.now().isoformat(),
-            "semester": application_data.get("semester_name", "Unknown"),
-            "academic_year": application_data.get("academic_year", "Unknown"),
-            "priority": "normal",
-            "category": "new_application"
-        }
-
-        # Craft notification message
-        message = f"""
-        New scholarship application submitted by {metadata['student_name']} 
-        """
-
-        # Send notification to all active admins
-        admin_ids = notify_admin(
-            message=message.strip(),
-            title=f"New Application #{application_id}",
-            metadata=metadata
-        )
-
-        logger.info(f"Notification sent to {len(admin_ids)} administrators for application {application_id}")
-
-        return {
-            "success": True,
-            "admin_count": len(admin_ids),
-            "admin_ids": admin_ids,
-            "message": "Notification sent successfully"
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to send admin notification: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e),
-            "admin_count": 0
-        }
-

@@ -84,6 +84,8 @@ def upload_avatar():
         if connection:
             connection.close()
 
+    create_notification(user_id, 'profile_updated', 'Profile Updated','Your profile has been updated')
+
     return jsonify({
         "success": True,
         "avatar": result,
@@ -677,6 +679,7 @@ def update_profile():
                                ))
 
         conn.commit()
+        create_notification(user_id, 'profile_updated', 'Profile Updated','Your profile has been updated')
         return jsonify({"message": "Profile updated successfully"}), 200
 
     except Exception as e:
@@ -738,6 +741,7 @@ def update_profile_details():
             """, (user_id, emergency_name, emergency_phone))
 
         conn.commit()
+        create_notification(user_id, 'profile_updated', 'Profile Updated','Your profile has been updated')
 
         return jsonify({"message": "Profile details updated successfully", "success": True}), 200
 

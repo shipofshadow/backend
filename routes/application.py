@@ -4,7 +4,8 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
 
-from services.notification_service import notify_admin, notify_admin_new_application, notify_student_application_status
+from services.notification_service import notify_admin, notify_admin_new_application, notify_student_application_status, \
+    create_notification
 from storage import get_connection
 from models.application import Application
 from services.application_service import save_application, insert_grades, update_application_data
@@ -126,8 +127,9 @@ def submit_application():
             application_data=data,
         )
 
-        notify_student_application_status(application_id, "submitted")
-
+        notify_student_application_status(application_id, "pending")
+        create_notification(user_id, 'application_submitted', 'Application Submitted',
+                            'Your application has been received.')
         return jsonify(data), 200
 
     except Exception as e:
@@ -223,7 +225,9 @@ def update_application_route(application_id):
         # 5. Update
         db = get_connection()
         success = update_application_data(db, user_id, application_id, application, data)
+        student_info = fetch_student_info(user_id)
 
+        notify_admin_new_application(application_id, student_info, data)
         if success:
             db.commit()
             return jsonify({"message": "Application updated successfully"}), 200
