@@ -1,5 +1,22 @@
 from storage import get_connection
 
+def get_semester_by_id(semester_id):
+    db = get_connection()
+    with db.cursor() as cursor:
+        cursor.execute("""
+            SELECT 
+                ay.id AS academic_year_id,
+                ay.year_start,
+                ay.year_end,
+                s.id AS semester_id,
+                s.name AS semester_name
+            FROM semesters s
+            INNER JOIN academic_years ay ON s.academic_year_id = ay.id
+            WHERE s.id = %s
+            LIMIT 1
+        """, (semester_id,))
+        return cursor.fetchone()
+
 def get_active_period():
     db = get_connection()
     with db.cursor() as cursor:

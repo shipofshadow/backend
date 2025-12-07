@@ -370,3 +370,48 @@ def deny_applicant(application_id):
     finally:
         cursor.close()
         db.close()
+
+@applicants_bp.route('/<int:application_id>/return', methods=['POST'])
+@jwt_required()
+def return_application(application_id):
+    """
+    Return application to student for revision.
+    ---
+    tags:
+      - Applicants
+    """
+    app = get_application(application_id)
+    if not app:
+        return jsonify({"error": "Application not found"}), 404
+
+    # Get the reason from request body
+    data = request.get_json()
+    reason = data.get('reason', '').strip() if data else ''
+
+    if not reason:
+        return jsonify({"error": "Reason for return is required"}), 400
+
+    db = get_connection()
+    cursor = db.cursor()
+    try:
+        # Update the application status to 'returned' and add remarks
+        cursor.execute(
+            "UPDATE applications SET status = 'returned', remarks = %s, updated_at = NOW() WHERE id = %s",
+            (reason, application_id)
+        )
+        db.commit()
+
+        # Notify student with the return reason
+        notify_student_application_status(
+            application_id,
+            status="returned",
+            remarks=reason
+        )
+
+        return jsonify({"message": "Application returned to student successfully"}), 200
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        db.close()

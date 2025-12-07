@@ -234,3 +234,4 @@ def update_application_route(application_id):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+

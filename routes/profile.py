@@ -4,6 +4,7 @@ import os
 from flask import Blueprint, jsonify, send_from_directory, request, redirect, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from services.admin.manage_periods import get_semester_by_id
 from services.notification_service import create_notification
 from services.s3_service import s3_service
 from utils.hashing import hash_password, verify_password
@@ -131,7 +132,6 @@ def get_application_by_id(application_id):
     query = f"""
         {base_applicant_query()}
         WHERE applications.student_id = %s AND applications.id = %s
-          AND semesters.is_active = 1
     """
 
     cursor.execute(query, [user_id, application_id])
@@ -141,8 +141,10 @@ def get_application_by_id(application_id):
         return jsonify({"error": "Application not found"}), 404
 
     grades = fetch_grades_by_application_id(cursor, application_id)
-
+    data = get_semester_by_id(application['sem_id'])
+    formatted = f"AY {data['year_start']}-{data['year_end']} - {data['semester_name']}"
     application['grades'] = grades
+    application['formatted'] = formatted
 
     cursor.close()
     return jsonify(application), 200
@@ -406,6 +408,12 @@ def get_scholarship_status(application_id):
         if app_status == "pending":
             return jsonify({
                 "status": "pending",
+                "common": common
+            })
+
+        if app_status == "returned":
+            return jsonify({
+                "status": "returned",
                 "common": common
             })
 
@@ -681,3 +689,61 @@ def update_profile():
             cursor.close()
         if conn:
             conn.close()
+
+
+@profile_bp.route('/details', methods=['PUT'])
+@jwt_required()
+def update_profile_details():
+    """
+    Update student contact and emergency information.
+    """
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    # Extract fields
+    email = data.get('email')
+    phone = data.get('phone')
+    emergency_name = data.get('emergencyContact')
+    emergency_phone = data.get('emergencyPhone')
+    civil_status = data.get('civil_status')
+    citizenship = data.get('citizenship')
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    try:
+        # 1. Update Student Basic Info
+        cursor.execute("""
+            UPDATE students 
+            SET email = %s, contact_number = %s, civil_status = %s, citizenship = %s, updated_at = NOW()
+            WHERE user_id = %s
+        """, (email, phone, civil_status, citizenship, user_id))
+
+        # 2. Update/Insert Emergency Contact in Family Background
+        # Check if record exists first
+        cursor.execute("SELECT id FROM family_background WHERE student_id = %s", (user_id,))
+        fb_exists = cursor.fetchone()
+
+        if fb_exists:
+            cursor.execute("""
+                UPDATE family_background 
+                SET emergency_contact_name = %s, emergency_contact_number = %s
+                WHERE student_id = %s
+            """, (emergency_name, emergency_phone, user_id))
+        else:
+            # Create partial record if missing
+            cursor.execute("""
+                INSERT INTO family_background (student_id, emergency_contact_name, emergency_contact_number)
+                VALUES (%s, %s, %s)
+            """, (user_id, emergency_name, emergency_phone))
+
+        conn.commit()
+
+        return jsonify({"message": "Profile details updated successfully", "success": True}), 200
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()

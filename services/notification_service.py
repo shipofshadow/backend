@@ -13,6 +13,7 @@ NOTIFICATION_TYPES = {
     'application_submitted': 'Application Submitted',
     'application_approved': 'Application Approved',
     'application_denied': 'Application Denied',
+    'application_returned': 'Application Returned',
     'scholarship_awarded': 'Scholarship Awarded',
     'scholarship_recommended': 'Scholarship Recommended',
     'system_announcement': 'System Announcement',
@@ -459,7 +460,15 @@ def notify_student_application_status(application_id: int, status: str, remarks:
             'pending': {
                 'title': '⏳ Application Under Review',
                 'message': f'Your scholarship application for {app_data["semester_name"]} is being reviewed.'
-            }
+            },
+            'returned': {
+                'title': '⚠️ Action Required: Application Returned',
+                'message': f'Your application for {app_data["semester_name"]} has been returned for revision.'
+            },
+             'evaluated': {
+                'title': '⏳ Application Evaluated',
+                'message': f'Your scholarship application for {app_data["semester_name"]} has been evaluated.'
+            },
         }
 
         notification_content = status_messages.get(status, {

@@ -199,7 +199,8 @@ def base_applicant_query():
                   itr_files.file_path    AS itr_file, \
                   grades_files.file_path AS grades_file, \
                   evaluations.*, \
-                  students.user_id       AS uuid
+                  students.user_id       AS uuid,
+                  semesters.id AS sem_id
            FROM applications
                     INNER JOIN students ON students.user_id = applications.student_id
                     LEFT JOIN addresses ON addresses.student_id = students.user_id
