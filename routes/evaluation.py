@@ -14,7 +14,8 @@ from services.recommend_service import RecommendationService
 
 from storage import get_connection
 from utils.applications import get_application
-from utils.decorator import admin_required, admin_or_faculty_required, ROLE_FACULTY, UNRESTRICTED_ROLES
+from utils.decorator import admin_required, privilegedRoleRequired, ROLE_FACULTY, UNRESTRICTED_ROLES, \
+    privilegedRoleRequired
 from utils.utils import smart_detect_flags, safe_json_parse, extract_applicant_flags
 
 # Configure logging
@@ -76,7 +77,7 @@ def check_application_campus_access(cursor, application_id, claims):
 # ============================================
 @evaluations_bp.route('/', methods=['GET'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def fetch_evaluatees():
     """
      Fetch all applicants eligible for evaluation.
@@ -189,7 +190,7 @@ def fetch_evaluatees():
 # ============================================
 @evaluations_bp.route('/<int:application_id>/evaluate', methods=['POST'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def evaluate(application_id):
     """
     Evaluate an application using fuzzy logic.
@@ -842,7 +843,7 @@ def validate_evaluation_data(data: Dict) -> Tuple[bool, str]:
 # ============================================
 @evaluations_bp.route('/summary', methods=['GET'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def get_applicants_summary():
     """
     Get all applicants with evaluation, recommendation and selection summary.
@@ -1041,7 +1042,7 @@ def get_applicants_summary():
 # ============================================
 @evaluations_bp.route('/bulk-evaluate', methods=['POST'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def bulk_evaluate():
     """
     Evaluate multiple applications at once.
@@ -1284,7 +1285,7 @@ def bulk_evaluate():
 # ============================================
 @evaluations_bp.route('/bulk-recommend', methods=['POST'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def bulk_recommend():
     """
     Generate recommendations for multiple applications at once.
@@ -1472,7 +1473,7 @@ def bulk_recommend():
 # ============================================
 @evaluations_bp.route('/export', methods=['GET'])
 @jwt_required()
-@admin_or_faculty_required
+@privilegedRoleRequired
 def export_applicants():
     """
     Export applicants data as CSV or JSON.
