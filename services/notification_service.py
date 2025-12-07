@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 NOTIFICATION_TYPES = {
     'application_submitted': 'Application Submitted',
     'application_approved': 'Application Approved',
+    'application_pending': 'Application Pending',
     'application_denied': 'Application Denied',
     'application_returned': 'Application Returned',
     'scholarship_awarded': 'Scholarship Awarded',
