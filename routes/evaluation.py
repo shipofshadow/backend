@@ -79,53 +79,7 @@ def check_application_campus_access(cursor, application_id, claims):
 @jwt_required()
 @privilegedRoleRequired
 def fetch_evaluatees():
-    """
-     Fetch all applicants eligible for evaluation.
-     Faculty users only see applicants from their assigned campus.
-     ---
-     tags:
-       - Evaluations
-     responses:
-       200:
-         description: List of applicants with evaluation-relevant details
-         schema:
-           type: array
-           items:
-             type: object
-             properties:
-               id:
-                 type: integer
-               application_id:
-                 type: integer
-               user_id:
-                 type: integer
-               name:
-                 type: string
-               grades:
-                 type: array
-                 items:
-                   type: object
-               family_income:
-                 type: number
-               status:
-                 type: string
-               is_ofw:
-                 type: boolean
-               is_farmers_child:
-                 type: boolean
-               is_ip:
-                 type: boolean
-               course_id:
-                 type: integer
-               department_id:
-                 type: integer
-               campus_id:
-                 type: integer
-               year_level:
-                 type: string
-       500:
-         description: Internal server error
-     """
+
     try:
         claims = get_jwt()
         connection = get_connection()
@@ -138,6 +92,7 @@ def fetch_evaluatees():
             WHERE applications.deleted_at IS NULL 
             AND semesters.is_active = 1
         """ + campus_clause + """
+        GROUP BY applications.id
             ORDER BY applications.status, applications.created_at DESC
         """
 

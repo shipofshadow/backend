@@ -32,114 +32,106 @@ def parse_form_data(form):
 
     return result
 
+
 @application_bp.route("/apply", methods=["POST"])
 @jwt_required()
 def submit_application():
-    """
-    Submit a new scholarship application.
-
-    Accepts multipart/form-data including:
-    - Applicant form fields
-    - Files: itr, grades
-
-    Automatically attaches the active semester and academic year.
-
-    ---
-    tags:
-      - Applications
-    security:
-      - jwt: []
-    consumes:
-      - multipart/form-data
-    parameters:
-      - in: formData
-        name: itr
-        type: file
-        required: true
-      - in: formData
-        name: grades
-        type: file
-        required: true
-      - in: formData
-        name: ...
-        type: string
-        description: All other applicant fields
-    responses:
-      200:
-        description: Application submitted successfully
-      400:
-        description: Missing files or invalid file format
-      500:
-        description: Internal server error
-    """
-
     user_id = get_jwt_identity()
+
+    # 1. Parse Form Data
     data = parse_form_data(request.form)
 
-    if "itr" not in request.files or "grades" not in request.files:
-        return jsonify({"error": "Missing files (itr or grades)"}), 400
+    # 2. Handle Multiple ITR Files
+    itr_paths = []
+    if "itr" in request.files:
+        # getlist() retrieves ALL files uploaded with the key 'itr'
+        files = request.files.getlist("itr")
+        for f in files:
+            if f and allowed_file(f.filename):
+                path = save_file(f, user_id, "itr")
+                itr_paths.append(path)
 
-    itr_file = request.files["itr"]
-    grades_file = request.files["grades"]
+    # 3. Handle Grades (Single file)
+    grades_path = None
+    if "grades" in request.files:
+        grades_file = request.files["grades"]
+        if allowed_file(grades_file.filename):
+            grades_path = save_file(grades_file, user_id, "grades")
 
-    if not allowed_file(itr_file.filename) or not allowed_file(grades_file.filename):
-        return jsonify({"error": "Invalid file format"}), 400
-
-    itr_filename = save_file(itr_file, user_id, "itr")
-    grades_filename = save_file(grades_file, user_id, "grades")
-
-    data["itr"] = itr_filename
-    data["grades"] = grades_filename
-
+    # 4. Get Active Term
     active = get_active_period()
+    if not active:
+        return jsonify({"error": "No active academic period found"}), 400
+
     data["academicYearId"] = active["academic_year_id"]
     data["semesterId"] = active["semester_id"]
 
-    print(active)
-
+    # 5. Fetch Student Info (Needed for validation and notifications)
     student_info = fetch_student_info(user_id)
     if not student_info:
         return jsonify({"error": "Student information not found"}), 404
 
     try:
+        # Initialize Application Object
         application = Application(data)
-
         db = get_connection()
+
+        # 6. Save Main Application Data
+        # Note: save_application usually returns the new ID
         application_id = save_application(db, user_id, application)
 
-        if application.grades_list:
+        # 7. Insert Grades (Subjects/Units)
+        if hasattr(application, 'grades_list') and application.grades_list:
             insert_grades(db, application_id, application.grades_list)
 
+        # 8. Insert File Paths (The Fix)
         with db.cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO application_files (application_id, file_type, file_path)
-                VALUES (%s, %s, %s)
-            """, (application_id, 'itr', itr_filename))
-            cursor.execute("""
-                INSERT INTO application_files (application_id, file_type, file_path)
-                VALUES (%s, %s, %s)
-            """, (application_id, 'grades', grades_filename))
+            # A. Loop through ITR paths and insert each one
+            if itr_paths:
+                for path in itr_paths:
+                    cursor.execute("""
+                                   INSERT INTO application_files (application_id, file_type, file_path)
+                                   VALUES (%s, 'itr', %s)
+                                   """, (application_id, path))
+
+            # B. Insert Grades file (if exists)
+            if grades_path:
+                cursor.execute("""
+                               INSERT INTO application_files (application_id, file_type, file_path)
+                               VALUES (%s, 'grades', %s)
+                               """, (application_id, grades_path))
+
         db.commit()
 
-        notify_admin_new_application(
-            application_id=application_id,
-            student_info=student_info,
-            application_data=data,
-        )
+        # 9. Notifications
+        # We need the campus_id for the new staff notification logic
+        # Assuming student_info contains 'campus_id' or it's in data['campus']
+
+        # campus_id = student_info.get('campus_id') or data.get('campus')
+        #
+        # if campus_id:
+        #     notify_admin_new_application(
+        #         application_id=application_id,
+        #         student_info=student_info,
+        #         application_data=data,
+        #         campus_id=campus_id
+        #     )
 
         notify_student_application_status(application_id, "pending")
-        create_notification(user_id, 'application_submitted', 'Application Submitted',
-                            'Your application has been received.')
-        return jsonify(data), 200
+        create_notification(
+            user_id,
+            'application_submitted',
+            'Application Submitted',
+            'Your application has been received.'
+        )
+
+        return jsonify({"message": "Application submitted successfully", "id": application_id}), 200
 
     except Exception as e:
-        db.rollback()  # Rollback to avoid partial writes if there's an error
+        db.rollback()
         print("Error in /apply:", e)
-        traceback.print_exc()  # <--- shows the real error!
-
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-
 @application_bp.route('/status', methods=['GET'])
 @jwt_required()
 def check_application_status():

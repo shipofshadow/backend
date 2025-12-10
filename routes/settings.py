@@ -8,7 +8,7 @@ from services.settings_service import (
     bulk_update_system_settings,
     get_storage_provider
 )
-from utils.decorator import bitress_required
+from utils.decorator import privilegedRoleRequired, privilegedRoleRequired
 from utils.utils import save_avatar, allowed_file
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
@@ -16,7 +16,7 @@ settings_bp = Blueprint('settings', __name__, url_prefix='/api/settings')
 
 @settings_bp.route('/', methods=['GET'])
 @jwt_required()
-@bitress_required
+@privilegedRoleRequired
 def get_settings():
     """
     Get all system configuration settings.
@@ -30,7 +30,7 @@ def get_settings():
 
 @settings_bp.route('/', methods=['POST'])
 @jwt_required()
-@bitress_required
+@privilegedRoleRequired
 def update_settings():
     """
     Update system settings (Bulk).
@@ -51,7 +51,7 @@ def update_settings():
 
 @settings_bp.route('/<config_name>', methods=['GET'])
 @jwt_required()
-@bitress_required
+@privilegedRoleRequired
 def get_single_setting(config_name):
     """
     Get a single setting value.
@@ -67,7 +67,7 @@ def get_single_setting(config_name):
 
 @settings_bp.route('/<config_name>', methods=['PUT'])
 @jwt_required()
-@bitress_required
+@privilegedRoleRequired
 def update_single_setting(config_name):
     """
     Update a single setting.
@@ -89,7 +89,7 @@ def update_single_setting(config_name):
 
 @settings_bp.route('/upload-avatar', methods=['POST'])
 @jwt_required()
-@bitress_required
+@privilegedRoleRequired
 def upload_avatar():
     """
     Upload avatar image endpoint.

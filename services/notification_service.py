@@ -297,50 +297,112 @@ def notify_admin(message: str, title: str = "Admin Notification", metadata: Opti
         raise
 
 
+def notify_staff(
+        message: str,
+        title: str = "System Notification",
+        metadata: Optional[Dict] = None,
+        message_type: str = "system_announcement",
+        campus_id: Optional[int] = None
+) -> List[int]:
+    """
+    Send notification to Admin and Faculty users.
+    - Admins: Receive ALL notifications.
+    - Faculty: Receive notifications ONLY if they match the `campus_id`.
+    - Bitress: Excluded.
+    """
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Build query to select target users
+        # 1. Always select Admins
+        query = "SELECT id FROM users WHERE role = 'admin' AND is_active = 1"
+        params = []
+
+        # 2. If campus_id is provided, also select Faculty from that campus
+        if campus_id:
+            query += " UNION SELECT id FROM users WHERE role = 'faculty' AND campus_id = %s AND is_active = 1"
+            params.append(campus_id)
+
+        # Execute query
+        cursor.execute(query, tuple(params))
+        recipients = cursor.fetchall()
+
+        cursor.close()
+        connection.close()
+
+        notification_ids = []
+        for user in recipients:
+            notif_id = create_notification(
+                user_id=user["id"],
+                message_type=message_type,
+                title=title,
+                message=message,
+                metadata=metadata,
+                priority="high"
+            )
+            notification_ids.append(notif_id)
+
+        logger.info(
+            f"Sent staff notification to {len(notification_ids)} users (Admins + Faculty of Campus {campus_id})")
+        return notification_ids
+
+    except Exception as e:
+        logger.error(f"Error sending staff notification: {str(e)}")
+        raise
+
+
 def notify_admin_new_application(
         application_id: int,
         student_info: Dict,
         application_data: Dict,
+        campus_id: Optional[int] = None
 ) -> Dict:
-    """Notify administrators about new application submission."""
+    """
+    Notify staff (Admins + Campus Faculty) about new application submission.
+    """
     try:
         metadata = {
             "application_id": application_id,
             "student_id": student_info.get("student_id"),
             "student_name": f"{student_info.get('firstname', '')} {student_info.get('lastname', '')}".strip(),
             "email": student_info.get("email"),
-            "contact_number": student_info.get("contact_number"),
             "submission_timestamp": datetime.now().isoformat(),
             "semester": application_data.get("semester_name", "Unknown"),
             "academic_year": application_data.get("academic_year", "Unknown"),
+            "campus_id": campus_id,
             "priority": "normal",
             "category": "new_application"
         }
 
         message = f"New scholarship application submitted by {metadata['student_name']}"
 
-        admin_ids = notify_admin(
-            message=message.strip(),
+        # Call notify_staff instead of notify_admin
+        # Pass the campus_id so relevant faculty are included
+        staff_ids = notify_staff(
+            message=message,
             title=f"New Application #{application_id}",
-            metadata=metadata
+            metadata=metadata,
+            message_type="new_application",
+            campus_id=campus_id
         )
+
+        logger.info(f"Notification sent to {len(staff_ids)} staff members for application {application_id}")
 
         return {
             "success": True,
-            "admin_count": len(admin_ids),
-            "admin_ids": admin_ids,
+            "recipient_count": len(staff_ids),
+            "recipient_ids": staff_ids,
             "message": "Notification sent successfully"
         }
 
     except Exception as e:
-        logger.error(f"Failed to send admin notification: {str(e)}")
+        logger.error(f"Failed to send staff notification: {str(e)}")
         return {
             "success": False,
             "error": str(e),
-            "admin_count": 0
+            "recipient_count": 0
         }
-
-
 # ==========================================
 # 4. CRUD OPERATIONS (READ, UPDATE, DELETE)
 # ==========================================
@@ -582,3 +644,5 @@ def delete_notification(notification_id: int, user_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error deleting notification {notification_id}: {str(e)}")
         raise
+
+

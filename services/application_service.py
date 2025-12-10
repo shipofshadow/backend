@@ -196,11 +196,11 @@ def base_applicant_query():
                   courses.*, \
                   students.student_id    AS uid, \
                   semesters.*, \
-                  itr_files.file_path    AS itr_file, \
+                  itr_files.file_paths   AS itr_files, \
                   grades_files.file_path AS grades_file, \
                   evaluations.*, \
                   students.user_id       AS uuid,
-                  semesters.id AS sem_id
+                  semesters.id           AS sem_id
            FROM applications
                     INNER JOIN students ON students.user_id = applications.student_id
                     LEFT JOIN addresses ON addresses.student_id = students.user_id
@@ -211,18 +211,17 @@ def base_applicant_query():
                     INNER JOIN semesters ON semesters.id = applications.semester_id
                     INNER JOIN academic_years ON academic_years.id = semesters.academic_year_id
                     LEFT JOIN evaluations ON evaluations.application_id = applications.id
+
                -- Files JOIN
-               -- Latest ITR file per application
-                    LEFT JOIN (SELECT application_id, file_path \
-                               FROM application_files AS f1 \
+
+               -- [MODIFIED] All ITR files per application, comma separated
+                    LEFT JOIN (SELECT application_id, GROUP_CONCAT(file_path SEPARATOR ',') as file_paths \
+                               FROM application_files \
                                WHERE file_type = 'itr' \
-                                 AND id = (SELECT MAX(id) \
-                                           FROM application_files f2 \
-                                           WHERE f2.application_id = f1.application_id \
-                                             AND f2.file_type = 'itr')) AS itr_files \
+                               GROUP BY application_id) AS itr_files \
                               ON itr_files.application_id = applications.id
 
-               -- Latest Grades file per application
+               -- Latest Grades file per application (Unchanged)
                     LEFT JOIN (SELECT application_id, file_path \
                                FROM application_files AS f1 \
                                WHERE file_type = 'grades' \
@@ -236,7 +235,6 @@ def base_applicant_query():
                     LEFT JOIN departments ON education_info.department_id = departments.department_id
                     LEFT JOIN courses ON education_info.course_id = courses.course_id
            """
-
 
 def fetch_grades_by_application_ids(cursor, application_ids):
     if not application_ids:
@@ -393,13 +391,23 @@ def update_application_data(db, user_id, application_id, application, raw_data):
                 continue  # Skip if grade is not a number
 
     # 6. Update Files (Only if new ones were uploaded)
-    if "itr" in raw_data and raw_data["itr"]:
-        cursor.execute("""
-                       INSERT INTO application_files (application_id, file_type, file_path)
-                       VALUES (%s, 'itr', %s)
-                       """, (application_id, raw_data["itr"]))
+    if "itr_paths" in raw_data and raw_data["itr_paths"]:
+        # First, clear OLD files (Optional: dependent on if you want to Append or Replace)
+        # Usually for an "Update", you replace the old set with the new set.
+        # cursor.execute("DELETE FROM application_files WHERE application_id = %s AND file_type = 'itr'",
+        #                (application_id,))
+
+        # Loop through the list of paths and insert them one by one
+        for path in raw_data["itr_paths"]:
+            cursor.execute("""
+                           INSERT INTO application_files (application_id, file_type, file_path)
+                           VALUES (%s, 'itr', %s)
+                           """, (application_id, path))
 
     if "grades" in raw_data and raw_data["grades"]:
+
+        # cursor.execute("DELETE FROM application_files WHERE application_id = %s AND file_type = 'grades'",
+        #                (application_id,))
         cursor.execute("""
                        INSERT INTO application_files (application_id, file_type, file_path)
                        VALUES (%s, 'grades', %s)

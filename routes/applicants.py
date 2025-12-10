@@ -17,7 +17,6 @@ applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
 
 
 @applicants_bp.route('/files/<path:filename>', methods=['GET'])
-@jwt_required()
 def get_uploaded_file(filename):
     """
     Smart File Retrieval:
