@@ -9,7 +9,12 @@ from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from services.meta.fuzzy_logic import FuzzyEligibilitySystem
-from services.notification_service import create_notification
+from services.notification_service import (
+    create_notification, 
+    notify_admin_student_selection,
+    notify_student_selection_confirmed,
+    notify_student_selection_rejected
+)
 from services.recommend_service import RecommendationService
 
 from storage import get_connection
@@ -535,7 +540,7 @@ def get_selections(application_id):
                                 JOIN scholarships s ON ss.scholarship_id = s.id
                                 LEFT JOIN evaluations er ON ss.application_id = er.application_id
                        WHERE ss.application_id = %s
-                         AND ss.status = 'selected'
+                         AND ss.status IN ('selected', 'student_selected', 'awarded')
                        ORDER BY ss.created_at DESC
                        LIMIT 1
                        """, (application_id,))
@@ -614,17 +619,21 @@ def select_scholarship(application_id):
         if not cursor.fetchone():
             return jsonify({"error": "Application not found"}), 404
 
-        # Check if already selected
+        # Check if already selected or pending student selection
         cursor.execute("""
-                       SELECT id
+                       SELECT id, status
                        FROM scholarship_selections
                        WHERE application_id = %s
-                         AND status = 'selected'
+                         AND status IN ('selected', 'awarded', 'student_selected')
                        """, (application_id,))
 
         existing_selection = cursor.fetchone()
         if existing_selection:
-            return jsonify({"error": "Scholarship already awarded to this applicant"}), 409
+            status = existing_selection['status']
+            if status == 'student_selected':
+                return jsonify({"error": "Student has already made a selection. Please use the confirm-selection endpoint to approve or reject it."}), 409
+            else:
+                return jsonify({"error": "Scholarship already awarded to this applicant"}), 409
 
         # Use provided amount or scholarship default amount
         final_amount = awarded_amount if awarded_amount is not None else scholarship['amount']
@@ -688,6 +697,262 @@ def select_scholarship(application_id):
         if 'connection' in locals():
             connection.rollback()
         logger.error(f"Error selecting scholarship for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/<int:application_id>/student-select-scholarship", methods=["POST"])
+@jwt_required()
+def student_select_scholarship(application_id):
+    """Student selects a scholarship from their recommendations"""
+    try:
+        student_id = get_jwt_identity()
+        data = request.get_json()
+        
+        scholarship_id = data.get('scholarship_id')
+        selection_reason = data.get('selection_reason', '')
+        
+        if not scholarship_id:
+            return jsonify({"error": "Scholarship ID is required"}), 400
+        
+        connection = get_connection()
+        cursor = connection.cursor()
+        
+        # Verify application belongs to student
+        cursor.execute("""
+            SELECT a.id, a.status, a.student_id, st.first_name, st.last_name
+            FROM applications a
+            JOIN students st ON a.student_id = st.user_id
+            WHERE a.id = %s AND a.deleted_at IS NULL
+        """, (application_id,))
+        
+        application = cursor.fetchone()
+        if not application:
+            return jsonify({"error": "Application not found"}), 404
+        
+        if application['student_id'] != student_id:
+            return jsonify({"error": "Unauthorized: This application does not belong to you"}), 403
+        
+        # Verify application status is evaluated
+        if application['status'] != 'evaluated':
+            return jsonify({"error": "Application must be in 'evaluated' status to select a scholarship"}), 400
+        
+        # Verify scholarship is in recommended scholarships
+        cursor.execute("""
+            SELECT rs.id
+            FROM recommended_scholarships rs
+            WHERE rs.application_id = %s AND rs.scholarship_id = %s
+        """, (application_id, scholarship_id))
+        
+        recommendation = cursor.fetchone()
+        if not recommendation:
+            return jsonify({"error": "Scholarship is not in your recommendations"}), 400
+        
+        # Verify student hasn't already selected a scholarship
+        cursor.execute("""
+            SELECT id, status
+            FROM scholarship_selections
+            WHERE application_id = %s AND status IN ('student_selected', 'selected', 'awarded')
+        """, (application_id,))
+        
+        existing_selection = cursor.fetchone()
+        if existing_selection:
+            status = existing_selection['status']
+            if status == 'student_selected':
+                return jsonify({"error": "You have already made a selection for this application. Please wait for admin confirmation."}), 409
+            else:
+                return jsonify({"error": "A scholarship has already been awarded for this application"}), 409
+        
+        # Get scholarship details
+        cursor.execute("""
+            SELECT name, grant_amount
+            FROM scholarships
+            WHERE id = %s AND is_active = 1 AND deleted_at IS NULL
+        """, (scholarship_id,))
+        
+        scholarship = cursor.fetchone()
+        if not scholarship:
+            return jsonify({"error": "Scholarship not found or inactive"}), 404
+        
+        # Insert selection with student_selected status
+        cursor.execute("""
+            INSERT INTO scholarship_selections
+            (application_id, scholarship_id, status, awarded_amount, selection_reason, created_at, updated_at)
+            VALUES (%s, %s, 'student_selected', %s, %s, NOW(), NOW())
+        """, (application_id, scholarship_id, scholarship['grant_amount'], selection_reason))
+        
+        selection_id = cursor.lastrowid
+        connection.commit()
+        
+        # Send notification to admins
+        student_name = f"{application['first_name']} {application['last_name']}"
+        notify_admin_student_selection(
+            application_id=application_id,
+            student_name=student_name,
+            scholarship_name=scholarship['name']
+        )
+        
+        logger.info(f"Student {student_id} selected scholarship {scholarship_id} for application {application_id}")
+        
+        response_data = {
+            "id": selection_id,
+            "application_id": application_id,
+            "scholarship_id": scholarship_id,
+            "scholarship_name": scholarship['name'],
+            "status": "student_selected",
+            "awarded_amount": float(scholarship['grant_amount']),
+            "selection_reason": selection_reason,
+            "selected_date": datetime.now().isoformat(),
+            "message": "Scholarship selection submitted successfully. Awaiting admin confirmation."
+        }
+        
+        return jsonify(response_data), 201
+        
+    except Exception as e:
+        if 'connection' in locals():
+            connection.rollback()
+        logger.error(f"Error in student scholarship selection for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/<int:application_id>/confirm-selection", methods=["PUT"])
+@jwt_required()
+@privilegedRoleRequired
+def confirm_student_selection(application_id):
+    """Admin confirms or rejects a student's scholarship selection"""
+    try:
+        data = request.get_json()
+        
+        action = data.get('action')  # 'confirm' or 'reject'
+        awarded_amount = data.get('awarded_amount')
+        remarks = data.get('remarks', '')
+        
+        if action not in ['confirm', 'reject']:
+            return jsonify({"error": "Action must be 'confirm' or 'reject'"}), 400
+        
+        connection = get_connection()
+        cursor = connection.cursor()
+        
+        # Get the pending student selection
+        cursor.execute("""
+            SELECT ss.id, ss.scholarship_id, ss.awarded_amount,
+                   s.name as scholarship_name,
+                   a.student_id
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            JOIN applications a ON ss.application_id = a.id
+            WHERE ss.application_id = %s 
+            AND ss.status = 'student_selected'
+            AND a.deleted_at IS NULL
+        """, (application_id,))
+        
+        selection = cursor.fetchone()
+        if not selection:
+            return jsonify({"error": "No pending student selection found for this application"}), 404
+        
+        if action == 'confirm':
+            # Use provided amount or default to scholarship amount
+            final_amount = awarded_amount if awarded_amount is not None else selection['awarded_amount']
+            final_amount = float(final_amount)
+            
+            if final_amount < 0:
+                return jsonify({"error": "Awarded amount cannot be negative"}), 400
+            
+            # Update selection status to 'selected'
+            cursor.execute("""
+                UPDATE scholarship_selections
+                SET status = 'selected',
+                    awarded_amount = %s,
+                    selection_reason = CONCAT(
+                        COALESCE(selection_reason, ''), 
+                        %s
+                    ),
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (final_amount, f' [Admin remarks: {remarks}]' if remarks else '', selection['id']))
+            
+            # Update application status to 'approved'
+            cursor.execute("""
+                UPDATE applications
+                SET status = 'approved',
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (application_id,))
+            
+            connection.commit()
+            
+            # Send notification to student
+            notify_student_selection_confirmed(
+                student_id=selection['student_id'],
+                application_id=application_id,
+                scholarship_name=selection['scholarship_name'],
+                awarded_amount=final_amount,
+                remarks=remarks
+            )
+            
+            logger.info(f"Admin confirmed student selection for application {application_id}")
+            
+            response_data = {
+                "id": selection['id'],
+                "application_id": application_id,
+                "scholarship_id": selection['scholarship_id'],
+                "scholarship_name": selection['scholarship_name'],
+                "status": "selected",
+                "awarded_amount": final_amount,
+                "remarks": remarks,
+                "message": "Student selection confirmed successfully"
+            }
+            
+        else:  # action == 'reject'
+            # Update selection status to 'rejected'
+            cursor.execute("""
+                UPDATE scholarship_selections
+                SET status = 'rejected',
+                    selection_reason = CONCAT(
+                        COALESCE(selection_reason, ''), 
+                        %s
+                    ),
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (f' [Admin rejection remarks: {remarks}]' if remarks else '', selection['id']))
+            
+            connection.commit()
+            
+            # Send notification to student
+            notify_student_selection_rejected(
+                student_id=selection['student_id'],
+                application_id=application_id,
+                scholarship_name=selection['scholarship_name'],
+                remarks=remarks
+            )
+            
+            logger.info(f"Admin rejected student selection for application {application_id}")
+            
+            response_data = {
+                "id": selection['id'],
+                "application_id": application_id,
+                "scholarship_id": selection['scholarship_id'],
+                "scholarship_name": selection['scholarship_name'],
+                "status": "rejected",
+                "remarks": remarks,
+                "message": "Student selection rejected. Application remains in evaluated status."
+            }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        if 'connection' in locals():
+            connection.rollback()
+        logger.error(f"Error confirming student selection for application {application_id}: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
     finally:
         if 'cursor' in locals():

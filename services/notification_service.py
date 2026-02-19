@@ -20,6 +20,9 @@ NOTIFICATION_TYPES = {
     'application_returned': 'Application Returned',
     'scholarship_awarded': 'Scholarship Awarded',
     'scholarship_recommended': 'Scholarship Recommended',
+    'student_scholarship_selected': 'Student Scholarship Selected',
+    'scholarship_selection_confirmed': 'Scholarship Selection Confirmed',
+    'scholarship_selection_rejected': 'Scholarship Selection Rejected',
     'system_announcement': 'System Announcement',
     'deadline_reminder': 'Deadline Reminder',
     'new_application': 'New Application',
@@ -643,6 +646,96 @@ def delete_notification(notification_id: int, user_id: int) -> bool:
 
     except Exception as e:
         logger.error(f"Error deleting notification {notification_id}: {str(e)}")
+        raise
+
+
+def notify_admin_student_selection(application_id: int, student_name: str, scholarship_name: str) -> List[int]:
+    """Send notification to admins when a student selects a scholarship"""
+    try:
+        metadata = {
+            'application_id': application_id,
+            'student_name': student_name,
+            'scholarship_name': scholarship_name
+        }
+        
+        message = f"{student_name} has selected {scholarship_name} for their scholarship application #{application_id}. Please review and confirm the selection."
+        
+        admin_ids = notify_admin(
+            message=message,
+            title=f"🎓 Student Scholarship Selection - Application #{application_id}",
+            metadata=metadata
+        )
+        
+        logger.info(f"Notified {len(admin_ids)} admins about student selection for application {application_id}")
+        return admin_ids
+        
+    except Exception as e:
+        logger.error(f"Error sending admin notification for student selection: {str(e)}")
+        raise
+
+
+def notify_student_selection_confirmed(
+    student_id: int, 
+    application_id: int, 
+    scholarship_name: str, 
+    awarded_amount: float,
+    remarks: Optional[str] = None
+):
+    """Send notification to student when their scholarship selection is confirmed"""
+    try:
+        message = f'Congratulations! Your selection of {scholarship_name} has been confirmed with an awarded amount of PHP {awarded_amount:,.2f}.'
+        if remarks:
+            message += f' Remarks: {remarks}'
+        
+        return create_notification(
+            user_id=student_id,
+            message_type='scholarship_selection_confirmed',
+            title='✅ Scholarship Selection Confirmed!',
+            message=message,
+            metadata={
+                'application_id': application_id,
+                'scholarship_name': scholarship_name,
+                'awarded_amount': awarded_amount,
+                'remarks': remarks
+            },
+            priority='high',
+            action_url=f'/applicant/application/{application_id}'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error sending confirmation notification to student: {str(e)}")
+        raise
+
+
+def notify_student_selection_rejected(
+    student_id: int,
+    application_id: int, 
+    scholarship_name: str,
+    remarks: Optional[str] = None
+):
+    """Send notification to student when their scholarship selection is rejected"""
+    try:
+        message = f'Your selection of {scholarship_name} for application #{application_id} has been rejected.'
+        if remarks:
+            message += f' Remarks: {remarks}'
+        message += ' You may select another scholarship from your recommendations.'
+        
+        return create_notification(
+            user_id=student_id,
+            message_type='scholarship_selection_rejected',
+            title='❌ Scholarship Selection Not Approved',
+            message=message,
+            metadata={
+                'application_id': application_id,
+                'scholarship_name': scholarship_name,
+                'remarks': remarks
+            },
+            priority='high',
+            action_url=f'/applicant/application/{application_id}'
+        )
+        
+    except Exception as e:
+        logger.error(f"Error sending rejection notification to student: {str(e)}")
         raise
 
 
