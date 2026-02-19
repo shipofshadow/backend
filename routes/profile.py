@@ -536,7 +536,6 @@ def get_scholarship_recommendations(application_id):
             eligibility_reasons = None
             if rec['eligibility_reasons']:
                 try:
-                    import json
                     eligibility_reasons = json.loads(rec['eligibility_reasons'])
                 except:
                     eligibility_reasons = rec['eligibility_reasons']

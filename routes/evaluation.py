@@ -867,18 +867,18 @@ def confirm_student_selection(application_id):
             if final_amount < 0:
                 return jsonify({"error": "Awarded amount cannot be negative"}), 400
             
+            # Prepare remarks suffix
+            remarks_suffix = f' [Admin remarks: {remarks}]' if remarks else ''
+            
             # Update selection status to 'selected'
             cursor.execute("""
                 UPDATE scholarship_selections
                 SET status = 'selected',
                     awarded_amount = %s,
-                    selection_reason = CONCAT(
-                        COALESCE(selection_reason, ''), 
-                        %s
-                    ),
+                    selection_reason = CONCAT(COALESCE(selection_reason, ''), %s),
                     updated_at = NOW()
                 WHERE id = %s
-            """, (final_amount, f' [Admin remarks: {remarks}]' if remarks else '', selection['id']))
+            """, (final_amount, remarks_suffix, selection['id']))
             
             # Update application status to 'approved'
             cursor.execute("""
@@ -913,17 +913,17 @@ def confirm_student_selection(application_id):
             }
             
         else:  # action == 'reject'
+            # Prepare remarks suffix
+            remarks_suffix = f' [Admin rejection remarks: {remarks}]' if remarks else ''
+            
             # Update selection status to 'rejected'
             cursor.execute("""
                 UPDATE scholarship_selections
                 SET status = 'rejected',
-                    selection_reason = CONCAT(
-                        COALESCE(selection_reason, ''), 
-                        %s
-                    ),
+                    selection_reason = CONCAT(COALESCE(selection_reason, ''), %s),
                     updated_at = NOW()
                 WHERE id = %s
-            """, (f' [Admin rejection remarks: {remarks}]' if remarks else '', selection['id']))
+            """, (remarks_suffix, selection['id']))
             
             connection.commit()
             
