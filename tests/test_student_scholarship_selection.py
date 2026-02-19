@@ -198,6 +198,30 @@ class TestStudentSelectScholarship:
         data = json.loads(response.data)
         assert 'already made a selection' in data['error']
 
+    def test_student_select_scholarship_missing_body(self, client, student_token):
+        """Test student selection with missing request body."""
+        response = client.post(
+            '/api/evaluations/1/student-select-scholarship',
+            headers={'Authorization': f'Bearer {student_token}'}
+            # No json parameter = no body
+        )
+        
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Request body is required' in data['error']
+
+    def test_student_select_scholarship_missing_scholarship_id(self, client, student_token):
+        """Test student selection with missing scholarship_id."""
+        response = client.post(
+            '/api/evaluations/1/student-select-scholarship',
+            headers={'Authorization': f'Bearer {student_token}', 'Content-Type': 'application/json'},
+            json={'selection_reason': 'I want this'}  # Has body but missing scholarship_id
+        )
+        
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Scholarship ID is required' in data['error']
+
 
 class TestAdminConfirmSelection:
     """Test cases for admin confirmation endpoint."""
@@ -317,6 +341,18 @@ class TestAdminConfirmSelection:
         assert response.status_code == 400
         data = json.loads(response.data)
         assert 'confirm' in data['error'] or 'reject' in data['error']
+
+    def test_admin_confirm_missing_body(self, client, admin_token):
+        """Test admin confirmation with missing request body."""
+        response = client.put(
+            '/api/evaluations/1/confirm-selection',
+            headers={'Authorization': f'Bearer {admin_token}'}
+            # No json parameter = no body
+        )
+        
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert 'Request body is required' in data['error']
 
 
 class TestGetSelection:

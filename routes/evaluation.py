@@ -711,7 +711,10 @@ def student_select_scholarship(application_id):
     """Student selects a scholarship from their recommendations"""
     try:
         student_id = get_jwt_identity()
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
         
         scholarship_id = data.get('scholarship_id')
         selection_reason = data.get('selection_reason', '')
@@ -830,7 +833,10 @@ def student_select_scholarship(application_id):
 def confirm_student_selection(application_id):
     """Admin confirms or rejects a student's scholarship selection"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
         
         action = data.get('action')  # 'confirm' or 'reject'
         awarded_amount = data.get('awarded_amount')
