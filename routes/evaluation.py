@@ -720,7 +720,8 @@ def get_applicant_recommendations():
                        s.created_at, \
                        s.updated_at, \
                        s.deleted_at, \
-                       ss.status AS selection_status
+                       rs.selection_status, \
+                       ss.status AS final_status
                 FROM recommended_scholarships rs
                          INNER JOIN scholarships s ON s.id = rs.scholarship_id
                          LEFT JOIN scholarship_selections ss

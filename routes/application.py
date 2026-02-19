@@ -32,6 +32,74 @@ def parse_form_data(form):
 
     return result
 
+# In routes/application.py (Student Side)
+@application_bp.route('/select-scholarship', methods=['POST'])
+@jwt_required()
+def student_select_scholarship():
+    try:
+        user_id = int(get_jwt_identity())
+        data = request.get_json()
+        application_id = data.get('application_id')
+        scholarship_id = data.get('scholarship_id')
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        # 1. Verify Application Ownership & Status
+        print(f"DEBUG: Checking Application {application_id} for User {user_id}")
+        cursor.execute("SELECT id FROM applications WHERE id = %s AND student_id = %s", (application_id, user_id))
+        app_res = cursor.fetchone()
+        print(f"DEBUG: Application Check Result: {app_res}")
+        
+        if not app_res:
+            return jsonify({"error": "Application not found or unauthorized"}), 404
+
+        # 2. Verify Recommendation Exists
+        print(f"DEBUG: Checking Recommendation {scholarship_id} for App {application_id}")
+        cursor.execute("""
+            SELECT id FROM recommended_scholarships 
+            WHERE application_id = %s AND scholarship_id = %s
+        """, (application_id, scholarship_id))
+        
+        rec_res = cursor.fetchone()
+        print(f"DEBUG: Recommendation Check Result: {rec_res}")
+
+        if not rec_res:
+             return jsonify({"error": "Scholarship is not in your recommendations"}), 400
+
+        # 3. Update Recommendation Selection Status
+        # First, clear any previous selection for this application (optional, but good practice if re-selecting)
+        cursor.execute("""
+            UPDATE recommended_scholarships 
+            SET selection_status = NULL 
+            WHERE application_id = %s
+        """, (application_id,))
+
+        # Set new selection
+        cursor.execute("""
+            UPDATE recommended_scholarships 
+            SET selection_status = 'selected'
+            WHERE application_id = %s AND scholarship_id = %s
+        """, (application_id, scholarship_id))
+
+        # 4. Update Application Status
+        cursor.execute("""
+                       UPDATE applications
+                       SET selected_scholarship_id = %s,
+                           status = 'awaiting_approval'
+                       WHERE id = %s
+                       """, (scholarship_id, application_id))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message": "Scholarship selected. Waiting for admin verification."}), 200
+
+    except Exception as e:
+        print(f"Error in select_scholarship: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @application_bp.route("/apply", methods=["POST"])
 @jwt_required()

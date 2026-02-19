@@ -15,6 +15,48 @@ from utils.decorator import admin_required
 
 applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
 
+@applicants_bp.route('/verify-selection', methods=['POST'])
+@jwt_required()
+# @admin_required decorator here
+def verify_scholarship_selection():
+    try:
+        data = request.get_json()
+        application_id = data.get('application_id')
+        action = data.get('action') # 'approve' or 'reject'
+
+        conn = get_connection()
+        cursor = conn.cursor()
+
+        if action == 'approve':
+            # Lock the selection and set final status
+            cursor.execute("""
+                           UPDATE applications
+                           SET status = 'approved',
+                               is_locked = TRUE,
+                               approved_at = NOW()
+                           WHERE id = %s
+                           """, (application_id,))
+            message = "Application approved and verified."
+        else:
+            # Reject selection (send back to student?)
+            cursor.execute("""
+                           UPDATE applications
+                           SET status = 'evaluated', -- Revert to evaluated so they can pick again
+                               selected_scholarship_id = NULL
+                           WHERE id = %s
+                           """, (application_id,))
+            message = "Selection rejected. Student must choose again."
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return jsonify({"message": message}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 
 @applicants_bp.route('/files/<path:filename>', methods=['GET'])
 def get_uploaded_file(filename):

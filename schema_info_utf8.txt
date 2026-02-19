@@ -1,0 +1,41 @@
+﻿--- Schema for applications ---
+CREATE TABLE `applications` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `reference_number` varchar(255) DEFAULT NULL,
+  `student_id` int(11) NOT NULL,
+  `semester_id` int(11) NOT NULL,
+  `submitted_at` datetime DEFAULT current_timestamp(),
+  `status` enum('pending','approved','denied','evaluated','returned','awaiting_approval') DEFAULT 'pending',
+  `remarks` text DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `selected_scholarship_id` int(11) DEFAULT NULL,
+  `is_locked` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `semester_id` (`semester_id`),
+  KEY `student_id` (`student_id`),
+  CONSTRAINT `applications_ibfk_1` FOREIGN KEY (`semester_id`) REFERENCES `semesters` (`id`),
+  CONSTRAINT `applications_ibfk_2` FOREIGN KEY (`student_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
+
+--- Schema for recommended_scholarships ---
+CREATE TABLE `recommended_scholarships` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `application_id` int(11) NOT NULL,
+  `scholarship_id` int(11) NOT NULL,
+  `score` float NOT NULL,
+  `classification` varchar(50) NOT NULL,
+  `eligibility_reasons` longtext DEFAULT NULL CHECK (json_valid(`eligibility_reasons`)),
+  `notes` text DEFAULT NULL,
+  `created_at` datetime DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_app_scholarship` (`application_id`,`scholarship_id`),
+  KEY `application_id` (`application_id`),
+  KEY `scholarship_id` (`scholarship_id`),
+  CONSTRAINT `recommended_scholarships_ibfk_1` FOREIGN KEY (`scholarship_id`) REFERENCES `scholarships` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=22 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
+
