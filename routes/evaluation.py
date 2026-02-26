@@ -14,8 +14,7 @@ from services.recommend_service import RecommendationService
 
 from storage import get_connection
 from utils.applications import get_application
-from utils.decorator import admin_required, privilegedRoleRequired, ROLE_FACULTY, UNRESTRICTED_ROLES, \
-    privilegedRoleRequired
+from utils.decorator import admin_required, privilegedRoleRequired, ROLE_FACULTY, ROLE_STUDENT, UNRESTRICTED_ROLES
 from utils.utils import smart_detect_flags, safe_json_parse, extract_applicant_flags
 
 # Configure logging
@@ -1560,6 +1559,415 @@ def export_applicants():
 
     except Exception as e:
         logger.error(f"Error exporting applicants: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+# ==========================================
+# STUDENT SCHOLARSHIP SELECTION
+# ==========================================
+
+@evaluations_bp.route("/<int:application_id>/student-select", methods=["POST"])
+@jwt_required()
+def student_select_scholarship(application_id):
+    """Student selects a scholarship from their recommendations"""
+    try:
+        claims = get_jwt()
+        if claims.get("role") != ROLE_STUDENT:
+            return jsonify({"error": "Students only"}), 403
+
+        current_user_id = int(get_jwt_identity())
+
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Verify application exists and belongs to current user
+        cursor.execute("""
+            SELECT a.id, a.student_id
+            FROM applications a
+            WHERE a.id = %s AND a.deleted_at IS NULL
+        """, (application_id,))
+        app = cursor.fetchone()
+
+        if not app:
+            return jsonify({"error": "Application not found"}), 404
+
+        if app["student_id"] != current_user_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+        data = request.get_json()
+        scholarship_id = data.get("scholarship_id")
+        if not scholarship_id:
+            return jsonify({"error": "scholarship_id is required"}), 400
+
+        # Verify scholarship is in recommendations
+        cursor.execute("""
+            SELECT id FROM recommended_scholarships
+            WHERE application_id = %s AND scholarship_id = %s
+        """, (application_id, scholarship_id))
+        if not cursor.fetchone():
+            return jsonify({"error": "Scholarship is not in your recommendations"}), 400
+
+        # Check if already accepted
+        cursor.execute("""
+            SELECT id FROM scholarship_selections
+            WHERE application_id = %s AND status = 'accepted'
+        """, (application_id,))
+        if cursor.fetchone():
+            return jsonify({"error": "Selection already accepted, cannot change"}), 409
+
+        # Delete existing student_chosen record if any
+        cursor.execute("""
+            DELETE FROM scholarship_selections
+            WHERE application_id = %s AND status = 'student_chosen'
+        """, (application_id,))
+
+        # Insert new selection
+        cursor.execute("""
+            INSERT INTO scholarship_selections
+            (application_id, scholarship_id, status, created_at, updated_at)
+            VALUES (%s, %s, 'student_chosen', NOW(), NOW())
+        """, (application_id, scholarship_id))
+
+        selection_id = cursor.lastrowid
+        connection.commit()
+
+        cursor.execute("""
+            SELECT ss.id, ss.application_id, ss.scholarship_id, s.name AS scholarship_name,
+                   ss.status, ss.created_at, ss.updated_at
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            WHERE ss.id = %s
+        """, (selection_id,))
+        row = cursor.fetchone()
+
+        result = {
+            "id": row["id"],
+            "application_id": row["application_id"],
+            "scholarship_id": row["scholarship_id"],
+            "scholarship_name": row["scholarship_name"],
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+
+        return jsonify(result), 201
+
+    except Exception as e:
+        if 'connection' in locals():
+            connection.rollback()
+        logger.error(f"Error in student_select_scholarship for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/<int:application_id>/student-select", methods=["PUT"])
+@jwt_required()
+def student_update_scholarship_selection(application_id):
+    """Student updates their existing scholarship selection"""
+    try:
+        claims = get_jwt()
+        if claims.get("role") != ROLE_STUDENT:
+            return jsonify({"error": "Students only"}), 403
+
+        current_user_id = int(get_jwt_identity())
+
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Verify application exists and belongs to current user
+        cursor.execute("""
+            SELECT a.id, a.student_id
+            FROM applications a
+            WHERE a.id = %s AND a.deleted_at IS NULL
+        """, (application_id,))
+        app = cursor.fetchone()
+
+        if not app:
+            return jsonify({"error": "Application not found"}), 404
+
+        if app["student_id"] != current_user_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+        # Check for accepted selection first
+        cursor.execute("""
+            SELECT id, status FROM scholarship_selections
+            WHERE application_id = %s AND status = 'accepted'
+            LIMIT 1
+        """, (application_id,))
+        if cursor.fetchone():
+            return jsonify({"error": "Selection already accepted, cannot change"}), 409
+
+        # Find existing student_chosen record
+        cursor.execute("""
+            SELECT id FROM scholarship_selections
+            WHERE application_id = %s AND status = 'student_chosen'
+            ORDER BY created_at DESC LIMIT 1
+        """, (application_id,))
+        existing = cursor.fetchone()
+
+        if not existing:
+            return jsonify({"error": "No student_chosen selection found"}), 404
+
+        data = request.get_json()
+        scholarship_id = data.get("scholarship_id")
+        if not scholarship_id:
+            return jsonify({"error": "scholarship_id is required"}), 400
+
+        # Verify scholarship is in recommendations
+        cursor.execute("""
+            SELECT id FROM recommended_scholarships
+            WHERE application_id = %s AND scholarship_id = %s
+        """, (application_id, scholarship_id))
+        if not cursor.fetchone():
+            return jsonify({"error": "Scholarship is not in your recommendations"}), 400
+
+        # Update the record
+        cursor.execute("""
+            UPDATE scholarship_selections
+            SET scholarship_id = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (scholarship_id, existing["id"]))
+        connection.commit()
+
+        cursor.execute("""
+            SELECT ss.id, ss.application_id, ss.scholarship_id, s.name AS scholarship_name,
+                   ss.status, ss.created_at, ss.updated_at
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            WHERE ss.id = %s
+        """, (existing["id"],))
+        row = cursor.fetchone()
+
+        result = {
+            "id": row["id"],
+            "application_id": row["application_id"],
+            "scholarship_id": row["scholarship_id"],
+            "scholarship_name": row["scholarship_name"],
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        if 'connection' in locals():
+            connection.rollback()
+        logger.error(f"Error in student_update_scholarship_selection for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/<int:application_id>/student-selection", methods=["GET"])
+@jwt_required()
+def get_student_selection(application_id):
+    """Get the student's current scholarship selection"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT ss.id, ss.scholarship_id, s.name AS scholarship_name,
+                   ss.status, ss.created_at, ss.updated_at
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            WHERE ss.application_id = %s
+              AND ss.status IN ('student_chosen', 'accepted', 'rejected')
+            ORDER BY ss.created_at DESC
+            LIMIT 1
+        """, (application_id,))
+
+        row = cursor.fetchone()
+
+        if not row:
+            return jsonify(None), 200
+
+        result = {
+            "id": row["id"],
+            "scholarship_id": row["scholarship_id"],
+            "scholarship_name": row["scholarship_name"],
+            "status": row["status"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        }
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching student selection for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/<int:application_id>/admin-approve-selection", methods=["PUT"])
+@jwt_required()
+@privilegedRoleRequired
+def admin_approve_selection(application_id):
+    """Admin approves or rejects a student's scholarship selection"""
+    try:
+        app = get_application(application_id)
+        if not app:
+            return jsonify({"error": "Application not found"}), 404
+
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        # Find the most recent student_chosen selection
+        cursor.execute("""
+            SELECT ss.id, ss.scholarship_id, s.name AS scholarship_name
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            WHERE ss.application_id = %s AND ss.status = 'student_chosen'
+            ORDER BY ss.created_at DESC
+            LIMIT 1
+        """, (application_id,))
+        selection = cursor.fetchone()
+
+        if not selection:
+            return jsonify({"error": "No pending student selection found"}), 404
+
+        data = request.get_json()
+        action = data.get("action")
+
+        if action not in ("accept", "reject"):
+            return jsonify({"error": "action must be 'accept' or 'reject'"}), 400
+
+        student_user_id = app["user_id"]
+        scholarship_name = selection["scholarship_name"]
+        selection_id = selection["id"]
+
+        if action == "accept":
+            cursor.execute("""
+                UPDATE scholarship_selections
+                SET status = 'accepted', updated_at = NOW()
+                WHERE id = %s
+            """, (selection_id,))
+            cursor.execute("""
+                UPDATE applications
+                SET status = 'approved', updated_at = NOW()
+                WHERE id = %s
+            """, (application_id,))
+            connection.commit()
+
+            try:
+                create_notification(
+                    user_id=student_user_id,
+                    message_type='scholarship_awarded',
+                    title='🎉 Scholarship Approved!',
+                    message=f'Your selected scholarship "{scholarship_name}" has been approved!',
+                    priority='high'
+                )
+            except Exception as notif_err:
+                logger.warning(f"Could not send notification: {str(notif_err)}")
+
+            return jsonify({
+                "id": selection_id,
+                "application_id": application_id,
+                "scholarship_id": selection["scholarship_id"],
+                "scholarship_name": scholarship_name,
+                "status": "accepted",
+                "message": "Scholarship selection accepted"
+            }), 200
+
+        else:  # reject
+            reason = data.get("reason", "")
+            cursor.execute("""
+                UPDATE scholarship_selections
+                SET status = 'rejected', updated_at = NOW()
+                WHERE id = %s
+            """, (selection_id,))
+            connection.commit()
+
+            try:
+                create_notification(
+                    user_id=student_user_id,
+                    message_type='scholarship_recommended',
+                    title='Scholarship Selection Update',
+                    message='Your scholarship selection was not approved. Please choose another scholarship from your recommendations.',
+                    priority='normal'
+                )
+            except Exception as notif_err:
+                logger.warning(f"Could not send notification: {str(notif_err)}")
+
+            return jsonify({
+                "id": selection_id,
+                "application_id": application_id,
+                "scholarship_id": selection["scholarship_id"],
+                "scholarship_name": scholarship_name,
+                "status": "rejected",
+                "reason": reason,
+                "message": "Scholarship selection rejected"
+            }), 200
+
+    except Exception as e:
+        if 'connection' in locals():
+            connection.rollback()
+        logger.error(f"Error in admin_approve_selection for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+
+@evaluations_bp.route("/pending-approvals", methods=["GET"])
+@jwt_required()
+@privilegedRoleRequired
+def get_pending_approvals():
+    """Get all applications with pending student scholarship selections"""
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT ss.id AS selection_id, ss.application_id, ss.scholarship_id,
+                   s.name AS scholarship_name, ss.created_at, ss.updated_at,
+                   st.first_name, st.last_name, st.student_id AS student_number
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            JOIN applications a ON ss.application_id = a.id
+            JOIN students st ON a.student_id = st.user_id
+            WHERE ss.status = 'student_chosen'
+              AND a.deleted_at IS NULL
+            ORDER BY ss.created_at DESC
+        """)
+
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            results.append({
+                "selection_id": row["selection_id"],
+                "application_id": row["application_id"],
+                "scholarship_id": row["scholarship_id"],
+                "scholarship_name": row["scholarship_name"],
+                "student_name": f"{row['first_name']} {row['last_name']}",
+                "student_number": row["student_number"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            })
+
+        return jsonify(results), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching pending approvals: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
     finally:
         if 'cursor' in locals():
