@@ -1,3 +1,4 @@
+import logging
 import traceback
 from flasgger import Swagger
 from flask import Flask, jsonify
@@ -33,6 +34,8 @@ from routes.users import users_bp
 from routes.potential_applicants import potential_applicants_bp
 from routes.system import system_bp
 from utils.response import error
+from storage import get_connection
+from utils.migrate import run_migrations
 from werkzeug.routing import BaseConverter
 
 class SignedIntConverter(BaseConverter):
@@ -105,6 +108,13 @@ app.register_blueprint(potential_applicants_bp)
 app.register_blueprint(system_bp)
 # Swagger
 swagger = Swagger(app)
+
+# Run pending database migrations on startup
+try:
+    run_migrations(get_connection)
+except Exception as _migration_err:
+    logging.getLogger(__name__).error("Startup migrations failed: %s", _migration_err)
+    raise
 # Routes
 @app.errorhandler(404)
 def not_found(er):
