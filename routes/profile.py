@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 
 from flask import Blueprint, jsonify, send_from_directory, request, redirect, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -15,6 +16,7 @@ from services.application_service import base_applicant_query, fetch_grades_by_a
 from utils.response import error
 from utils.utils import save_avatar
 
+logger = logging.getLogger(__name__)
 profile_bp = Blueprint("profile", __name__, url_prefix="/api/profile")
 
 
@@ -461,6 +463,122 @@ def get_scholarship_status(application_id):
 
     except Exception as e:
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
+
+
+@profile_bp.route('/scholarship-recommendations/<int:application_id>', methods=['GET'])
+@jwt_required()
+def get_scholarship_recommendations(application_id):
+    """Get recommended scholarships for a student's application with selection status"""
+    try:
+        student_id = get_jwt_identity()
+        connection = get_connection()
+        cursor = connection.cursor()
+        
+        # Verify application belongs to student
+        cursor.execute("""
+            SELECT a.id, a.status, a.student_id
+            FROM applications a
+            WHERE a.id = %s AND a.deleted_at IS NULL
+        """, (application_id,))
+        
+        application = cursor.fetchone()
+        if not application:
+            return jsonify({"error": "Application not found"}), 404
+        
+        if application['student_id'] != student_id:
+            return jsonify({"error": "Unauthorized: This application does not belong to you"}), 403
+        
+        # Get recommended scholarships
+        cursor.execute("""
+            SELECT 
+                rs.id as recommendation_id,
+                rs.scholarship_id,
+                s.name as scholarship_name,
+                s.description,
+                s.grant_amount,
+                rs.score,
+                rs.classification,
+                rs.eligibility_reasons,
+                rs.notes,
+                rs.created_at
+            FROM recommended_scholarships rs
+            JOIN scholarships s ON rs.scholarship_id = s.id
+            WHERE rs.application_id = %s
+            AND s.is_active = 1
+            AND s.deleted_at IS NULL
+            ORDER BY rs.score DESC
+        """, (application_id,))
+        
+        recommendations = cursor.fetchall()
+        
+        # Check if student has already selected a scholarship
+        cursor.execute("""
+            SELECT 
+                ss.id,
+                ss.scholarship_id,
+                ss.status,
+                ss.awarded_amount,
+                ss.selection_reason,
+                s.name as scholarship_name
+            FROM scholarship_selections ss
+            JOIN scholarships s ON ss.scholarship_id = s.id
+            WHERE ss.application_id = %s
+            AND ss.status IN ('student_selected', 'selected', 'awarded')
+            ORDER BY ss.created_at DESC
+            LIMIT 1
+        """, (application_id,))
+        
+        selection = cursor.fetchone()
+        
+        # Process recommendations
+        recommendations_list = []
+        for rec in recommendations:
+            eligibility_reasons = None
+            if rec['eligibility_reasons']:
+                try:
+                    eligibility_reasons = json.loads(rec['eligibility_reasons'])
+                except:
+                    eligibility_reasons = rec['eligibility_reasons']
+            
+            recommendations_list.append({
+                "recommendation_id": rec['recommendation_id'],
+                "scholarship_id": rec['scholarship_id'],
+                "scholarship_name": rec['scholarship_name'],
+                "description": rec['description'],
+                "grant_amount": float(rec['grant_amount']) if rec['grant_amount'] else None,
+                "score": float(rec['score']) if rec['score'] else None,
+                "classification": rec['classification'],
+                "eligibility_reasons": eligibility_reasons,
+                "notes": rec['notes'],
+                "recommended_at": rec['created_at'].isoformat() if rec['created_at'] else None
+            })
+        
+        response_data = {
+            "application_id": application_id,
+            "application_status": application['status'],
+            "recommendations": recommendations_list,
+            "selection": None
+        }
+        
+        if selection:
+            response_data['selection'] = {
+                "id": selection['id'],
+                "scholarship_id": selection['scholarship_id'],
+                "scholarship_name": selection['scholarship_name'],
+                "status": selection['status'],
+                "awarded_amount": float(selection['awarded_amount']) if selection['awarded_amount'] else None,
+                "selection_reason": selection['selection_reason']
+            }
+        
+        cursor.close()
+        connection.close()
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching recommendations for application {application_id}: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
 
 @profile_bp.route('/change-password', methods=['POST'])
 @jwt_required()
