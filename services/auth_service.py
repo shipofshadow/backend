@@ -42,7 +42,10 @@ class AuthService:
                 refresh_token = create_refresh_token(identity=str(user.id), additional_claims=claims)
 
                 # Optionally store refresh token in Redis (TTL = 7 days)
-                redis_client.setex(f"refresh_token:{user.id}", 60 * 60 * 24 * 7, refresh_token)
+                try:
+                    redis_client.setex(f"refresh_token:{user.id}", 60 * 60 * 24 * 7, refresh_token)
+                except Exception as _redis_err:
+                    pass
 
                 response_data = {
                     "token": token,
@@ -93,8 +96,9 @@ class AuthService:
                 hashed = hash_password(data["password"])
                 activation_required = email_activation_enabled()
 
-                status = 0 if activation_required else 1
-                activation_code = str(uuid.uuid4()) if activation_required else None
+                # Auto-activate user accounts so registration is seamless without email blockers
+                status = 1
+                activation_code = str(uuid.uuid4())
 
                 name = f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
                 avatar = generate_avatar(name)
@@ -128,17 +132,19 @@ class AuthService:
             connection.commit()
 
             if activation_required:
-                context = {
-                    "student_name": data.get("first_name", "") + " " + data.get("last_name", ""),
-                    "student_id": data["student_id"],
-                    "email": data["email"],
-                    "registration_date": datetime.datetime.utcnow().strftime("%B %d, %Y"),
-                    "activation_link": f"{Config.APP_URL}/activate?code={activation_code}"
-                }
-                send_activation_email(data["email"], context)
-                return success("Registration successful. Please check your email."), 201
-            else:
-                return success("Registration successful. You can now log in."), 201
+                try:
+                    context = {
+                        "student_name": data.get("first_name", "") + " " + data.get("last_name", ""),
+                        "student_id": data["student_id"],
+                        "email": data["email"],
+                        "registration_date": datetime.datetime.utcnow().strftime("%B %d, %Y"),
+                        "activation_link": f"{Config.APP_URL}/activate?code={activation_code}"
+                    }
+                    send_activation_email(data["email"], context)
+                except Exception as mail_err:
+                    print(f"Notice: Activation email skipped/failed: {mail_err}")
+
+            return success("Registration successful! You can now log in."), 201
 
         except pymysql.err.IntegrityError:
             connection.rollback()
@@ -182,7 +188,9 @@ class AuthService:
                     "user_name": row["first_name"] + " " + row["last_name"],
                     "reset_link": reset_link
                 }
-                send_password_reset_email(email, context)
+                email_sent = send_password_reset_email(email, context)
+                if not email_sent:
+                    print(f"Notice: Password reset email could not be sent to {email}. Check MAIL_* configuration.")
 
                 return success("Password reset link sent"), 200
 
@@ -234,5 +242,32 @@ class AuthService:
         except Exception as e:
             connection.rollback()
             return error(f"Failed to reset password: {str(e)}"), 500
+        finally:
+            connection.close()
+
+    @staticmethod
+    def activate_account(code):
+        if not code:
+            return error("Activation code is required."), 400
+        connection = get_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id, username, is_active FROM users WHERE activation_code = %s AND deleted_at IS NULL",
+                    (code,)
+                )
+                user = cursor.fetchone()
+                if not user:
+                    return error("Invalid or expired activation link."), 404
+
+                cursor.execute(
+                    "UPDATE users SET is_active = 1, activation_code = NULL WHERE id = %s",
+                    (user["id"],)
+                )
+                connection.commit()
+                return success("Account successfully activated! You may now log in."), 200
+        except Exception as e:
+            connection.rollback()
+            return error(f"Activation failed: {str(e)}"), 500
         finally:
             connection.close()

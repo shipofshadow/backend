@@ -165,18 +165,37 @@ class FuzzyEligibilitySystem:
         self._load_from_database()
 
     @staticmethod
-    def _triangular(x: float, params: List[float]) -> float:
+    def _membership_degree(x: float, params: List[float]) -> float:
         """
-        Triangular membership function.
+        Piecewise linear membership function supporting triangular,
+        left-shoulder (a == b), and right-shoulder (b == c) shapes.
 
         Args:
             x: Input value.
-            params: A list containing [a, b, c] for the triangle's points.
+            params: A list containing [a, b, c].
 
         Returns:
             Membership degree (from 0.0 to 1.0).
         """
         a, b, c = params
+
+        # Left-shoulder function (e.g. GWA High: [1.0, 1.0, 1.5])
+        if a == b:
+            if x <= a:
+                return 1.0
+            if x >= c:
+                return 0.0
+            return (c - x) / (c - b)
+
+        # Right-shoulder function (e.g. [b == c])
+        if b == c:
+            if x <= a:
+                return 0.0
+            if x >= b:
+                return 1.0
+            return (x - a) / (b - a)
+
+        # Standard triangular function
         if x <= a or x >= c:
             return 0.0
         if x == b:
@@ -184,6 +203,9 @@ class FuzzyEligibilitySystem:
         if a < x < b:
             return (x - a) / (b - a)
         return (c - x) / (c - b)
+
+    # Alias for backward compatibility
+    _triangular = _membership_degree
 
     def _fuzzify(self, variable_name: str, value: float) -> Dict[str, float]:
         """
@@ -202,7 +224,7 @@ class FuzzyEligibilitySystem:
 
         memberships = {}
         for set_name, params in self.membership_functions[variable_name].items():
-            memberships[set_name] = self._triangular(value, params)
+            memberships[set_name] = self._membership_degree(value, params)
         return memberships
 
     def compute_score(self, gwa: float, income: float) -> float:

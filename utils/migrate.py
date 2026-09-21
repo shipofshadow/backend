@@ -58,7 +58,7 @@ def run_migrations(get_connection):
                 continue
 
             logger.info("Applying migration: %s", filename)
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, "r", encoding="utf-8-sig") as f:
                 sql = f.read()
 
             # Strip comment lines and execute each non-empty statement

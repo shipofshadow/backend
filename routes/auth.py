@@ -118,3 +118,15 @@ def confirm_password_reset():
 
     except Exception as e:
         return jsonify({"status": "error", "message": f"Unexpected error: {str(e)}"}), 500
+
+@auth_bp.route("/activate", methods=["GET", "POST"])
+def activate():
+    """
+    Activate user account using activation code
+    """
+    code = request.args.get("code")
+    if not code and request.is_json:
+        code = request.json.get("code")
+
+    response_data, status_code = AuthService.activate_account(code)
+    return jsonify(response_data), status_code

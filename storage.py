@@ -7,7 +7,9 @@ from pymysql.cursors import DictCursor
 redis_client = redis.Redis(
     host=Config.REDIS_HOST,
     port=Config.REDIS_PORT,
-    password=Config.REDIS_PASSWORD
+    password=Config.REDIS_PASSWORD,
+    socket_connect_timeout=2,
+    socket_timeout=2
 )
 
 # MySQL

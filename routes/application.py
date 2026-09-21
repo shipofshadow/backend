@@ -1,8 +1,11 @@
 import json
+import logging
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 import traceback
+
+logger = logging.getLogger(__name__)
 
 from services.notification_service import notify_admin, notify_admin_new_application, notify_student_application_status, \
     create_notification
@@ -46,23 +49,19 @@ def student_select_scholarship():
         cursor = conn.cursor()
 
         # 1. Verify Application Ownership & Status
-        print(f"DEBUG: Checking Application {application_id} for User {user_id}")
         cursor.execute("SELECT id FROM applications WHERE id = %s AND student_id = %s", (application_id, user_id))
         app_res = cursor.fetchone()
-        print(f"DEBUG: Application Check Result: {app_res}")
         
         if not app_res:
             return jsonify({"error": "Application not found or unauthorized"}), 404
 
         # 2. Verify Recommendation Exists
-        print(f"DEBUG: Checking Recommendation {scholarship_id} for App {application_id}")
         cursor.execute("""
             SELECT id FROM recommended_scholarships 
             WHERE application_id = %s AND scholarship_id = %s
         """, (application_id, scholarship_id))
         
         rec_res = cursor.fetchone()
-        print(f"DEBUG: Recommendation Check Result: {rec_res}")
 
         if not rec_res:
              return jsonify({"error": "Scholarship is not in your recommendations"}), 400
@@ -97,7 +96,7 @@ def student_select_scholarship():
         return jsonify({"message": "Scholarship selected. Waiting for admin verification."}), 200
 
     except Exception as e:
-        print(f"Error in select_scholarship: {e}")
+        logger.error(f"Error in select_scholarship: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -197,7 +196,7 @@ def submit_application():
 
     except Exception as e:
         db.rollback()
-        print("Error in /apply:", e)
+        logger.error(f"Error in /apply: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 @application_bp.route('/status', methods=['GET'])

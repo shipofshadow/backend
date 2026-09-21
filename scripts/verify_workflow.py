@@ -11,6 +11,13 @@ from app import app
 from storage import get_connection
 from flask_jwt_extended import create_access_token
 
+def _val(row, key, index=0):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[index]
+
 class TestScholarshipSelection(unittest.TestCase):
     def setUp(self):
         self.app = app
@@ -21,10 +28,18 @@ class TestScholarshipSelection(unittest.TestCase):
         self.conn = get_connection()
         self.cursor = self.conn.cursor()
 
-        # Test Data
-        self.student_id = 46  # Retrieved from previous step
-        self.admin_id = 1     # Assuming admin ID 1 exists
-        self.scholarship_id = 1 # Retrieved from previous step
+        # Query dynamic IDs from DB
+        self.cursor.execute("SELECT user_id FROM students LIMIT 1")
+        stu_row = self.cursor.fetchone()
+        self.student_id = _val(stu_row, 'user_id', 0) if stu_row else 1
+
+        self.cursor.execute("SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL LIMIT 1")
+        admin_row = self.cursor.fetchone()
+        self.admin_id = _val(admin_row, 'id', 0) if admin_row else 1
+
+        self.cursor.execute("SELECT id FROM scholarships WHERE is_active = 1 AND deleted_at IS NULL LIMIT 1")
+        sch_row = self.cursor.fetchone()
+        self.scholarship_id = _val(sch_row, 'id', 0) if sch_row else 1
         
         # Setup DB State
         self._clean_db()
@@ -57,7 +72,7 @@ class TestScholarshipSelection(unittest.TestCase):
             self.cursor.execute("INSERT INTO semesters (academic_year_id, name, order_index, is_active) VALUES (%s, 'Test Sem', 1, 1)", (ay_id,))
             self.semester_id = self.cursor.lastrowid
         else:
-            self.semester_id = res['id']
+            self.semester_id = _val(res, 'id', 0)
 
         # 2. Create Application
         self.cursor.execute("""
@@ -98,14 +113,15 @@ class TestScholarshipSelection(unittest.TestCase):
         print(f"Response: {res.json}")
         self.assertEqual(res.status_code, 200)
         
-        # Verify DB Updates
+        # Verify DB Updates – commit first so cursor sees committed data from the test client's connection
+        self.conn.commit()
         self.cursor.execute("SELECT status FROM applications WHERE id = %s", (self.application_id,))
-        app_status = self.cursor.fetchone()['status']
+        app_status = _val(self.cursor.fetchone(), 'status', 0)
         self.assertEqual(app_status, 'awaiting_approval')
         
         self.cursor.execute("SELECT selection_status FROM recommended_scholarships WHERE application_id = %s AND scholarship_id = %s", 
                             (self.application_id, self.scholarship_id))
-        sel_status = self.cursor.fetchone()['selection_status']
+        sel_status = _val(self.cursor.fetchone(), 'selection_status', 0)
         self.assertEqual(sel_status, 'selected')
         print("-> Student selection verified.")
 
@@ -144,9 +160,10 @@ class TestScholarshipSelection(unittest.TestCase):
         print(f"Response: {res.json}")
         self.assertEqual(res.status_code, 201)
         
-        # Verify final status
+        # Verify final status – commit so this cursor sees the other connection's committed data
+        self.conn.commit()
         self.cursor.execute("SELECT status FROM applications WHERE id = %s", (self.application_id,))
-        final_status = self.cursor.fetchone()['status']
+        final_status = _val(self.cursor.fetchone(), 'status', 0)
         self.assertEqual(final_status, 'approved')
         print("-> Admin award verified.")
 

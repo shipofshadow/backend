@@ -231,18 +231,27 @@ def evaluate(application_id):
         score = round(result["score"], 4)
         classification = result["classification"]
 
-        # Insert or update evaluation
+        # Build explanation payload for student-facing display
+        explanation = {
+            "memberships": result.get("memberships", {}),
+            "fired_rules": result.get("fired_rules", []),
+            "inputs": result.get("inputs", {}),
+        }
+
+        # Insert or update evaluation (including explanation)
         cursor.execute("""
                        INSERT INTO evaluations (application_id, gwa, total_units, income, score, classification,
-                                                created_at, updated_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                                                explanation, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                        ON DUPLICATE KEY UPDATE gwa            = VALUES(gwa),
                                                income         = VALUES(income),
                                                score          = VALUES(score),
                                                total_units    = VALUES(total_units),
                                                classification = VALUES(classification),
+                                               explanation    = VALUES(explanation),
                                                updated_at     = NOW()
-                       """, (application_id, gwa, total_units, income, score, classification))
+                       """, (application_id, gwa, total_units, income, score, classification,
+                              json.dumps(explanation)))
 
         cursor.execute("""
             UPDATE applications
@@ -278,6 +287,7 @@ def evaluate(application_id):
             "score": score,
             "classification": classification,
             "gwa": gwa,
+            "explanation": explanation,
         })
 
     except ValueError as e:
@@ -334,7 +344,7 @@ def get_evaluation_result(application_id):
         cursor = connection.cursor()
 
         cursor.execute("""
-                       SELECT id, application_id, gwa, score, classification, created_at
+                       SELECT id, application_id, gwa, score, classification, explanation, created_at
                        FROM evaluations
                        WHERE application_id = %s
                          AND deleted_at IS NULL
@@ -345,11 +355,20 @@ def get_evaluation_result(application_id):
         if not row:
             return jsonify({"error": "Evaluation not found"}), 404
 
+        # Parse explanation JSON if stored as string
+        explanation = row["explanation"]
+        if isinstance(explanation, str):
+            try:
+                explanation = json.loads(explanation)
+            except Exception:
+                explanation = None
+
         return jsonify({
             "application_id": int(row["application_id"]),
             "gwa": float(row["gwa"]),
             "score": float(row["score"]),
             "classification": row["classification"],
+            "explanation": explanation,
         })
 
     except Exception as e:
@@ -650,6 +669,42 @@ def select_scholarship(application_id):
                            updated_at = NOW()
                        WHERE id = %s
                        """, (application_id,))
+
+        # Increment filled_slots
+        cursor.execute("""
+            UPDATE scholarships
+            SET filled_slots = filled_slots + 1
+            WHERE id = %s
+        """, (scholarship_id,))
+
+        # Auto-close scholarship if quota is reached
+        cursor.execute("""
+            UPDATE scholarships
+            SET is_active = 0
+            WHERE id = %s
+              AND total_slots IS NOT NULL
+              AND filled_slots >= total_slots
+        """, (scholarship_id,))
+
+        if cursor.rowcount > 0:
+            cursor.execute("SELECT name FROM scholarships WHERE id = %s", (scholarship_id,))
+            sch_row = cursor.fetchone()
+            sch_name = (
+                sch_row.get("name") if isinstance(sch_row, dict)
+                else (sch_row[0] if sch_row else "Scholarship")
+            )
+
+            cursor.execute("SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL")
+            admin_rows = cursor.fetchall()
+            for admin in admin_rows:
+                admin_id = admin.get("id") if isinstance(admin, dict) else admin[0]
+                create_notification(
+                    user_id=admin_id,
+                    message_type='system_announcement',
+                    title='🎓 Scholarship Full',
+                    message=f'"{sch_name}" has reached its slot quota and has been automatically closed.',
+                    priority='high'
+                )
 
         connection.commit()
 

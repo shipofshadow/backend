@@ -14,9 +14,10 @@ class Config:
     DB_NAME = os.getenv("DB_NAME")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 
-    REDIS_HOST = os.getenv("REDIS_HOST")
-    REDIS_PORT = int(os.getenv("REDIS_PORT"))
-    REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost") or "localhost"
+    _redis_port = os.getenv("REDIS_PORT")
+    REDIS_PORT = int(_redis_port) if _redis_port and _redis_port.strip().isdigit() else 6379
+    REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 
     FERNET_KEY = os.getenv("FERNET_KEY")
 

@@ -11,13 +11,13 @@ from storage import get_connection
 from routes.application import UPLOAD_FOLDER
 from services.application_service import base_applicant_query, fetch_grades_by_application_ids
 from utils.applications import get_application
-from utils.decorator import admin_required
+from utils.decorator import admin_required, privilegedRoleRequired
 
 applicants_bp = Blueprint('applicants', __name__, url_prefix='/api/applicants')
 
 @applicants_bp.route('/verify-selection', methods=['POST'])
 @jwt_required()
-# @admin_required decorator here
+@admin_required
 def verify_scholarship_selection():
     try:
         data = request.get_json()
@@ -36,6 +36,55 @@ def verify_scholarship_selection():
                                approved_at = NOW()
                            WHERE id = %s
                            """, (application_id,))
+
+            # Get the selected scholarship id
+            cursor.execute(
+                "SELECT selected_scholarship_id FROM applications WHERE id = %s",
+                (application_id,)
+            )
+            app_row = cursor.fetchone()
+            selected_scholarship_id = (
+                app_row.get("selected_scholarship_id") if isinstance(app_row, dict)
+                else (app_row[0] if app_row else None)
+            )
+
+            if selected_scholarship_id:
+                # Increment filled_slots
+                cursor.execute("""
+                    UPDATE scholarships
+                    SET filled_slots = filled_slots + 1
+                    WHERE id = %s
+                """, (selected_scholarship_id,))
+
+                # Auto-close scholarship if quota is reached
+                cursor.execute("""
+                    UPDATE scholarships
+                    SET is_active = 0
+                    WHERE id = %s
+                      AND total_slots IS NOT NULL
+                      AND filled_slots >= total_slots
+                """, (selected_scholarship_id,))
+
+                if cursor.rowcount > 0:
+                    cursor.execute("SELECT name FROM scholarships WHERE id = %s", (selected_scholarship_id,))
+                    sch_row = cursor.fetchone()
+                    sch_name = (
+                        sch_row.get("name") if isinstance(sch_row, dict)
+                        else (sch_row[0] if sch_row else "Scholarship")
+                    )
+
+                    cursor.execute("SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL")
+                    admin_rows = cursor.fetchall()
+                    for admin in admin_rows:
+                        admin_id = admin.get("id") if isinstance(admin, dict) else admin[0]
+                        create_notification(
+                            user_id=admin_id,
+                            message_type='system_announcement',
+                            title='🎓 Scholarship Full',
+                            message=f'"{sch_name}" has reached its slot quota and has been automatically closed.',
+                            priority='high'
+                        )
+
             message = "Application approved and verified."
         else:
             # Reject selection (send back to student?)

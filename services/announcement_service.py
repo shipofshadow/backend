@@ -69,24 +69,35 @@ def     publish_announcement(announcement_id: int) -> Dict:
 
         elif audience_type == 'role':
             role = audience_filter.get('role')
-            cursor.execute("SELECT id FROM users WHERE role = %s AND is_active = 1", (role,))
+            campus_id = audience_filter.get('campus_id')
+            if role and campus_id:
+                cursor.execute("SELECT id FROM users WHERE role = %s AND campus_id = %s AND is_active = 1", (role, campus_id))
+            elif role:
+                cursor.execute("SELECT id FROM users WHERE role = %s AND is_active = 1", (role,))
+            elif campus_id:
+                cursor.execute("SELECT id FROM users WHERE campus_id = %s AND is_active = 1", (campus_id,))
+            else:
+                cursor.execute("SELECT id FROM users WHERE is_active = 1")
             target_users = [row['id'] for row in cursor.fetchall()]
 
         elif audience_type == 'specific':
             target_users = audience_filter.get('user_ids', [])
 
-        # 3. Fan-out Notifications (In a real production app, offload this loop to a background worker)
+        # 3. Fan-out Notifications
         sent_count = 0
         for user_id in target_users:
-            create_notification(
-                user_id=user_id,
-                message_type='system_announcement',
-                title=announcement['title'],
-                message=announcement['message'],
-                priority=announcement['priority'],
-                metadata={'announcement_id': announcement['id']}
-            )
-            sent_count += 1
+            try:
+                create_notification(
+                    user_id=user_id,
+                    message_type='system_announcement',
+                    title=announcement['title'],
+                    message=announcement['message'],
+                    priority=announcement.get('priority', 'normal'),
+                    metadata={'announcement_id': announcement['id']}
+                )
+                sent_count += 1
+            except Exception as notify_err:
+                logger.warning(f"Failed to notify user {user_id}: {notify_err}")
 
         # 4. Update Status
         cursor.execute("""

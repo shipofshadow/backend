@@ -60,23 +60,23 @@ app.config["MAIL_PASSWORD"] = Config.MAIL_PASSWORD
 app.config["MAIL_DEFAULT_SENDER"] = Config.MAIL_DEFAULT_SENDER
 
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://ischolar.xyz",
+    "https://www.ischolar.xyz",
+    "http://ischolar.test"
+]
+
 # Init extensions
 jwt.init_app(app)
 cache.init_app(app)
-socketio.init_app(app, cors_allowed_origins=[
-    "http://localhost:5173",
-    "https://ischolar.xyz",
-    "https://www.ischolar.xyz",
-    "http://ischolar.test"
-],)
+socketio.init_app(app, cors_allowed_origins=ALLOWED_ORIGINS)
 
 # CORS
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": [
-    "http://localhost:5173",
-    "https://ischolar.xyz",
-    "https://www.ischolar.xyz",
-    "http://ischolar.test"
-]}})
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 
 mail = Mail(app)
 

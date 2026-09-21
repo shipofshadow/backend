@@ -113,27 +113,35 @@ def get_student_feed():
         connection = get_connection()
         cursor = connection.cursor()
 
-        # Fetch user role
-        cursor.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+        # Fetch user role and campus
+        cursor.execute("SELECT role, campus_id FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
         role = user['role'] if user else 'student'
+        campus_id = str(user['campus_id']) if user and user.get('campus_id') is not None else None
 
-        # Complex query to match:
-        # 1. Broadcast (all)
-        # 2. Role-based (e.g., 'student')
-        # 3. Specific user ID (if implemented in filter)
         query = """
                 SELECT id, title, message, priority, created_at, audience_type
                 FROM announcements
                 WHERE is_published = 1
                   AND (
                     audience_type = 'all'
-                        OR (audience_type = 'role' AND JSON_EXTRACT(audience_filter, '$.role') = %s)
+                    OR (
+                        audience_type = 'role'
+                        AND (
+                            JSON_UNQUOTE(JSON_EXTRACT(audience_filter, '$.role')) = %s
+                            OR JSON_EXTRACT(audience_filter, '$.role') IS NULL
+                        )
+                        AND (
+                            JSON_UNQUOTE(JSON_EXTRACT(audience_filter, '$.campus_id')) IS NULL
+                            OR JSON_UNQUOTE(JSON_EXTRACT(audience_filter, '$.campus_id')) = ''
+                            OR JSON_UNQUOTE(JSON_EXTRACT(audience_filter, '$.campus_id')) = %s
+                        )
                     )
-                ORDER BY created_at DESC LIMIT 5 \
+                  )
+                ORDER BY created_at DESC LIMIT 10
                 """
 
-        cursor.execute(query, (role,))
+        cursor.execute(query, (role, campus_id))
         announcements = cursor.fetchall()
         cursor.close()
         connection.close()
@@ -141,7 +149,8 @@ def get_student_feed():
         data = []
         for a in announcements:
             item = dict(a)
-            item['created_at'] = item['created_at'].isoformat()
+            if item.get('created_at'):
+                item['created_at'] = item['created_at'].isoformat()
             data.append(item)
 
         return jsonify({"success": True, "data": data}), 200

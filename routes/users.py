@@ -19,20 +19,6 @@ def validate_email(email):
     return re.match(pattern, email) is not None
 
 
-def get_next_admin_id():
-    """Get next available admin ID (starting from -2 and decrementing)"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT MIN(id) as min_id FROM users WHERE id < 0")
-    result = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
-    if result and result[0]:
-        return result[0] - 1
-    return -2
-
-
 def username_exists(username, exclude_id=None):
     """Check if username already exists"""
     conn = get_connection()

@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 import zipfile
 import shutil
-import pymysql
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 from config import Config
 from services.s3_service import s3_service
@@ -78,7 +80,7 @@ def find_executable(name):
     # First try system PATH (works on both Windows and Linux)
     exe = sh.which(name)
     if exe:
-        print(f"Found {name} in PATH: {exe}")
+        logger.info("Found %s in PATH: %s", name, exe)
         return exe
 
     # Try OS-specific locations
@@ -89,10 +91,10 @@ def find_executable(name):
 
     for path in paths:
         if os.path.exists(path):
-            print(f"Found {name} at: {path}")
+            logger.info("Found %s at: %s", name, path)
             return path
 
-    print(f"{name} not found")
+    logger.warning("%s not found", name)
     return None
 
 
@@ -111,7 +113,7 @@ def get_db_connection():
 
 def backup_database_python(output_file):
     """Pure Python database backup - works everywhere"""
-    print(f"Starting Python-based backup to {output_file}")
+    logger.info("Starting Python-based backup to %s", output_file)
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -128,7 +130,7 @@ def backup_database_python(output_file):
         cursor.execute("SHOW TABLES")
         tables = [row[f'Tables_in_{Config.DB_NAME}'] for row in cursor.fetchall()]
 
-        print(f"Backing up {len(tables)} tables...")
+        logger.info("Backing up %d tables...", len(tables))
 
         for table in tables:
             f.write(f"\n--\n-- Table structure for table `{table}`\n--\n\n")
@@ -175,7 +177,7 @@ def backup_database_python(output_file):
 
     cursor.close()
     conn.close()
-    print("Python backup completed")
+    logger.info("Python backup completed")
 
 
 def backup_database_mysqldump(output_file):
@@ -198,18 +200,18 @@ def backup_database_mysqldump(output_file):
         Config.DB_NAME
     ]
 
-    print(f"Running mysqldump: {' '.join(cmd[:7])}...")  # Don't log password
+    logger.info("Running mysqldump: %s...", ' '.join(cmd[:7]))  # Don't log password
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         raise Exception(f"mysqldump failed: {result.stderr}")
 
-    print("mysqldump completed")
+    logger.info("mysqldump completed")
 
 
 def restore_database_python(sql_file):
     """Restore database using Python - cross-platform"""
-    print(f"Starting Python-based restore from {sql_file}")
+    logger.info("Starting Python-based restore from %s", sql_file)
 
     try:
         conn = get_db_connection()
@@ -218,7 +220,7 @@ def restore_database_python(sql_file):
         with open(sql_file, 'r', encoding='utf-8') as f:
             sql_content = f.read()
 
-        print(f"Read {len(sql_content)} bytes from SQL file")
+        logger.info("Read %d bytes from SQL file", len(sql_content))
 
         # Disable foreign key checks
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
@@ -262,7 +264,7 @@ def restore_database_python(sql_file):
 
             i += 1
 
-        print(f"Split into {len(statements)} SQL statements")
+        logger.info("Split into %d SQL statements", len(statements))
 
         # Execute statements
         successful = 0
@@ -280,7 +282,7 @@ def restore_database_python(sql_file):
 
                 if successful % 100 == 0:
                     conn.commit()
-                    print(f"Progress: {successful}/{len(statements)} statements executed")
+                    logger.info("Progress: %d/%d statements executed", successful, len(statements))
 
             except pymysql.Error as e:
                 errors += 1
@@ -289,15 +291,15 @@ def restore_database_python(sql_file):
                 if 'already exists' not in error_msg.lower() and \
                         'unknown database' not in error_msg.lower() and \
                         'duplicate key' not in error_msg.lower():
-                    print(f"Error in statement {idx}: {error_msg}")
-                    print(f"Statement preview: {statement[:100]}...")
+                    logger.error("Error in statement %d: %s", idx, error_msg)
+                    logger.error("Statement preview: %s...", statement[:100])
 
                     if 'syntax error' in error_msg.lower():
-                        print(f"CRITICAL SYNTAX ERROR - stopping restore")
+                        logger.critical("CRITICAL SYNTAX ERROR - stopping restore")
                         raise
 
         conn.commit()
-        print(f"Restore complete: {successful} successful, {errors} errors")
+        logger.info("Restore complete: %d successful, %d errors", successful, errors)
 
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
         conn.commit()
@@ -305,10 +307,10 @@ def restore_database_python(sql_file):
         cursor.close()
         conn.close()
 
-        print("Database restore completed successfully")
+        logger.info("Database restore completed successfully")
 
     except Exception as e:
-        print(f"FATAL ERROR during restore: {e}")
+        logger.error("FATAL ERROR during restore: %s", e)
         if 'conn' in locals():
             try:
                 conn.rollback()
@@ -324,7 +326,7 @@ def restore_database_mysql(sql_file):
     if not mysql_path:
         raise Exception("mysql client not found")
 
-    print(f"Using mysql at: {mysql_path}")
+    logger.info("Using mysql at: %s", mysql_path)
 
     cmd = [
         mysql_path,
@@ -337,7 +339,7 @@ def restore_database_mysql(sql_file):
 
     try:
         with open(sql_file, 'r', encoding='utf-8') as f:
-            print(f"Running mysql restore...")
+            logger.info("Running mysql restore...")
             result = subprocess.run(
                 cmd,
                 stdin=f,
@@ -348,10 +350,10 @@ def restore_database_mysql(sql_file):
             )
 
         if result.returncode != 0:
-            print(f"mysql stderr: {result.stderr}")
+            logger.error("mysql stderr: %s", result.stderr)
             raise Exception(f"Database restore failed: {result.stderr}")
 
-        print("MySQL restore completed successfully")
+        logger.info("MySQL restore completed successfully")
 
     except subprocess.TimeoutExpired:
         raise Exception("Database restore timed out after 5 minutes")
@@ -380,11 +382,11 @@ def safe_remove_dir(directory, max_retries=5, delay=0.5):
             return True
         except (PermissionError, OSError) as e:
             if attempt < max_retries - 1:
-                print(f"Retry {attempt + 1}/{max_retries} removing directory: {e}")
+                logger.warning("Retry %d/%d removing directory: %s", attempt + 1, max_retries, e)
                 time.sleep(delay * (attempt + 1))
                 gc.collect()
             else:
-                print(f"Failed to remove directory after {max_retries} attempts")
+                logger.error("Failed to remove directory after %d attempts", max_retries)
                 try:
                     shutil.rmtree(directory, ignore_errors=True)
                 except:
@@ -410,11 +412,11 @@ def safe_remove_file(filepath, max_retries=5, delay=0.5):
             return True
         except (PermissionError, OSError) as e:
             if attempt < max_retries - 1:
-                print(f"Retry {attempt + 1}/{max_retries} removing file: {e}")
+                logger.warning("Retry %d/%d removing file: %s", attempt + 1, max_retries, e)
                 time.sleep(delay * (attempt + 1))
                 gc.collect()
             else:
-                print(f"Failed to remove file after {max_retries} attempts")
+                logger.error("Failed to remove file after %d attempts", max_retries)
                 return False
     return False
 
@@ -443,7 +445,7 @@ def create_backup():
             backup_database_mysqldump(db_backup_file)
             backup_method = "mysqldump"
         except Exception as e:
-            print(f"mysqldump failed, using Python method: {e}")
+            logger.warning("mysqldump failed, using Python method: %s", e)
             backup_database_python(db_backup_file)
             backup_method = "python"
 
@@ -493,7 +495,7 @@ def create_backup():
                 metadata['s3_key'] = s3_key
                 metadata['s3_uploaded'] = True
             except Exception as e:
-                print(f"S3 upload failed: {e}")
+                logger.error("S3 upload failed: %s", e)
                 metadata['s3_uploaded'] = False
                 metadata['s3_error'] = str(e)
 
@@ -535,7 +537,7 @@ def list_backups():
                         metadata['size'] = backup_file.stat().st_size
                         backups.append(metadata)
             except Exception as e:
-                print(f"Error reading {backup_file}: {e}")
+                logger.error("Error reading %s: %s", backup_file, e)
             finally:
                 if zip_handle:
                     try:
@@ -589,10 +591,10 @@ def restore_backup():
         filename = data.get('filename')
         restore_files = data.get('restore_files', True)
 
-        print(f"=== RESTORE REQUEST ===")
-        print(f"Platform: {platform.system()} {platform.release()}")
-        print(f"Filename: {filename}")
-        print(f"Restore files: {restore_files}")
+        logger.info("=== RESTORE REQUEST ===")
+        logger.info("Platform: %s %s", platform.system(), platform.release())
+        logger.info("Filename: %s", filename)
+        logger.info("Restore files: %s", restore_files)
 
         if not filename:
             return jsonify({"success": False, "error": "Filename required"}), 400
@@ -602,14 +604,14 @@ def restore_backup():
         if not backup_path.exists():
             return jsonify({"success": False, "error": "Backup not found"}), 404
 
-        print(f"Backup file: {backup_path}")
-        print(f"Size: {backup_path.stat().st_size} bytes")
+        logger.info("Backup file: %s", backup_path)
+        logger.info("Size: %d bytes", backup_path.stat().st_size)
 
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         extract_dir = BACKUP_DIR / f"temp_restore_{timestamp}"
         extract_dir.mkdir(exist_ok=True)
 
-        print(f"Extracting to: {extract_dir}")
+        logger.info("Extracting to: %s", extract_dir)
 
         zip_handle = zipfile.ZipFile(backup_path, 'r')
         zip_handle.extractall(extract_dir)
@@ -627,22 +629,22 @@ def restore_backup():
             sql_files = list(extract_dir.glob("*.sql"))
             if sql_files:
                 sql_file = sql_files[0]
-                print(f"Using: {sql_file}")
+                logger.info("Using: %s", sql_file)
             else:
                 raise Exception("No SQL backup file found")
 
-        print(f"SQL file: {sql_file} ({sql_file.stat().st_size} bytes)")
+        logger.info("SQL file: %s (%d bytes)", sql_file, sql_file.stat().st_size)
 
         # Restore database
         restore_method = None
 
         try:
-            print("Attempting mysql restore...")
+            logger.info("Attempting mysql restore...")
             restore_database_mysql(sql_file)
             restore_method = "mysql"
         except Exception as e:
-            print(f"mysql failed: {e}")
-            print("Trying Python restore...")
+            logger.warning("mysql failed: %s", e)
+            logger.info("Trying Python restore...")
 
             try:
                 restore_database_python(sql_file)
@@ -654,7 +656,7 @@ def restore_backup():
         if restore_files:
             files_backup_dir = extract_dir / "uploads"
             if files_backup_dir.exists():
-                print("Restoring files...")
+                logger.info("Restoring files...")
 
                 if UPLOADS_DIR.exists():
                     backup_current = BACKUP_DIR / f"pre_restore_uploads_{timestamp}"
@@ -663,11 +665,11 @@ def restore_backup():
                     time.sleep(0.3)
 
                 shutil.copytree(files_backup_dir, UPLOADS_DIR)
-                print("Files restored")
+                logger.info("Files restored")
 
         time.sleep(0.5)
         safe_remove_dir(extract_dir)
-        print("=== RESTORE COMPLETE ===")
+        logger.info("=== RESTORE COMPLETE ===")
 
         return jsonify({
             "success": True,
@@ -676,10 +678,8 @@ def restore_backup():
         }), 200
 
     except Exception as e:
-        print(f"=== RESTORE FAILED ===")
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("=== RESTORE FAILED ===")
+        logger.error("Error: %s", e, exc_info=True)
 
         if zip_handle:
             try:

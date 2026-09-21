@@ -20,6 +20,8 @@ def get_scholarships():
                             s.grant_amount,
                               s.description,
                               s.is_active,
+                              s.total_slots,
+                              s.filled_slots,
                               s.created_at,
                               s.updated_at,
                               sr.rule_id,
@@ -57,12 +59,19 @@ def get_scholarships():
                     print(f"[WARNING] Invalid JSON in scholarship_rules for rule_id {row['rule_id']}: {e}")
                     rules = {"rule_id": row["rule_id"], "config_error": "Invalid JSON configuration"}
 
+            total_slots = row["total_slots"]
+            filled_slots = row["filled_slots"] or 0
+            slots_remaining = (total_slots - filled_slots) if total_slots is not None else None
+
             scholarships.append({
                 "id": row["scholarship_id"],
                 "name": row["name"],
                 "description": row["description"],
                 "grant_amount": row["grant_amount"],
                 "is_active": bool(row["is_active"]),
+                "total_slots": total_slots,
+                "filled_slots": filled_slots,
+                "slots_remaining": slots_remaining,
                 "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                 "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
                 "rules": rules
@@ -93,13 +102,14 @@ def create_scholarship():
     try:
         # Insert scholarship
         cursor.execute("""
-                       INSERT INTO scholarships (name, description, grant_amount, is_active)
-                       VALUES (%s, %s, %s, %s)
+                       INSERT INTO scholarships (name, description, grant_amount, is_active, total_slots)
+                       VALUES (%s, %s, %s, %s, %s)
                        """, (
                            data['name'],
                            data.get('description'),
                            data.get('grant_amount'),
-                           int(data.get('is_active', 1))
+                           int(data.get('is_active', 1)),
+                           data.get('total_slots')  # None = unlimited
                        ))
         scholarship_id = cursor.lastrowid
 
@@ -176,6 +186,7 @@ def update_scholarship(scholarship_id):
                            description = %s,
                            grant_amount = %s,
                            is_active   = %s,
+                           total_slots = %s,
                            updated_at  = CURRENT_TIMESTAMP
                        WHERE id = %s
                        """, (
@@ -183,6 +194,7 @@ def update_scholarship(scholarship_id):
                            data.get('description'),
                            data.get('grant_amount'),
                            int(data.get('is_active', 1)),
+                           data.get('total_slots'),
                            scholarship_id
                        ))
 
