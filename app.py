@@ -68,7 +68,9 @@ ALLOWED_ORIGINS = [
     "https://ischolar.xyz",
     "https://www.ischolar.xyz",
     "http://ischolar.test",
-    "https://api.ischolar.space"
+    "https://ischolar.space",
+    "https://www.ischolar.space"
+
 ]
 
 # Init extensions
