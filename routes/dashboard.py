@@ -26,6 +26,36 @@ def active_applicants():
         'active_applicants': result['total'],
     }), 200
 
+@dashboard_bp.route("/public-stats", methods=["GET"])
+def public_stats():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 
+                COUNT(*) AS total_applications,
+                SUM(CASE WHEN applications.status = 'approved' THEN 1 ELSE 0 END) AS approved_students
+            FROM applications
+            LEFT JOIN semesters ON semesters.id = applications.semester_id
+            WHERE semesters.is_active = 1 AND applications.deleted_at IS NULL
+        """)
+        result = cursor.fetchone() or {}
+        return jsonify({
+            'success': True,
+            'total_applications': result.get('total_applications') or 0,
+            'approved_students': int(result.get('approved_students') or 0),
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'total_applications': 0,
+            'approved_students': 0,
+            'error': str(e)
+        }), 200
+    finally:
+        cursor.close()
+        conn.close()
+
 @dashboard_bp.route("/approved-applicants", methods=["GET"])
 @jwt_required()
 @admin_or_faculty_required
