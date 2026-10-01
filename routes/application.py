@@ -138,6 +138,7 @@ def submit_application():
     if not student_info:
         return jsonify({"error": "Student information not found"}), 404
 
+    db = None
     try:
         # Initialize Application Object
         application = Application(data)
@@ -147,22 +148,37 @@ def submit_application():
         # Note: save_application usually returns the new ID
         application_id = save_application(db, user_id, application)
 
-        # 7. Insert Grades (Subjects/Units)
-        if hasattr(application, 'grades_list') and application.grades_list:
-            insert_grades(db, application_id, application.grades_list)
-
-        # 8. Insert File Paths (The Fix)
+        # 7. Clear old grades then re-insert (handles retry/resubmission)
         with db.cursor() as cursor:
-            # A. Loop through ITR paths and insert each one
+            cursor.execute("DELETE FROM application_grades WHERE application_id = %s", (application_id,))
+
+        if hasattr(application, 'grades_list') and application.grades_list:
+            valid_grades = [
+                g for g in application.grades_list
+                if g.get('subject', '').strip() and str(g.get('grade', '')).strip()
+            ]
+            if valid_grades:
+                insert_grades(db, application_id, valid_grades)
+
+        # 8. Insert File Paths - clear existing then re-insert to prevent duplicates
+        with db.cursor() as cursor:
+            # Clear old files for this application (replace on retry)
             if itr_paths:
+                cursor.execute(
+                    "DELETE FROM application_files WHERE application_id = %s AND file_type = 'itr'",
+                    (application_id,)
+                )
                 for path in itr_paths:
                     cursor.execute("""
                                    INSERT INTO application_files (application_id, file_type, file_path)
                                    VALUES (%s, 'itr', %s)
                                    """, (application_id, path))
 
-            # B. Insert Grades file (if exists)
             if grades_path:
+                cursor.execute(
+                    "DELETE FROM application_files WHERE application_id = %s AND file_type = 'grades'",
+                    (application_id,)
+                )
                 cursor.execute("""
                                INSERT INTO application_files (application_id, file_type, file_path)
                                VALUES (%s, 'grades', %s)
@@ -171,31 +187,22 @@ def submit_application():
         db.commit()
 
         # 9. Notifications
-        # We need the campus_id for the new staff notification logic
-        # Assuming student_info contains 'campus_id' or it's in data['campus']
-
-        # campus_id = student_info.get('campus_id') or data.get('campus')
-        #
-        # if campus_id:
-        #     notify_admin_new_application(
-        #         application_id=application_id,
-        #         student_info=student_info,
-        #         application_data=data,
-        #         campus_id=campus_id
-        #     )
-
-        notify_student_application_status(application_id, "pending")
-        create_notification(
-            user_id,
-            'application_submitted',
-            'Application Submitted',
-            'Your application has been received.'
-        )
+        try:
+            notify_student_application_status(application_id, "pending")
+            create_notification(
+                user_id,
+                'application_submitted',
+                'Application Submitted',
+                'Your application has been received.'
+            )
+        except Exception as notif_err:
+            logger.warning(f"Notification error (non-critical): {notif_err}")
 
         return jsonify({"message": "Application submitted successfully", "id": application_id}), 200
 
     except Exception as e:
-        db.rollback()
+        if db:
+            db.rollback()
         logger.error(f"Error in /apply: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

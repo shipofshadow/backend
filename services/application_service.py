@@ -30,8 +30,21 @@ def save_application(db, user_id, application):
     existing_application = cursor.fetchone()
 
     if existing_application:
-        # Semester application exists -> only update addresses and family_background
+        # Semester application exists -> update education_info and addresses/family
         application_id = existing_application['id']
+
+        # Update education_info for the existing semester application
+        cursor.execute("""
+                       UPDATE education_info
+                       SET campus_id=%s, department_id=%s, course_id=%s,
+                           year_level=%s, total_units=%s, enrollment_status=%s
+                       WHERE student_id=%s AND semester_id=%s
+                       """, (
+                           application.campus, application.department, application.course,
+                           application.year_level, application.total_units,
+                           application.enrollment_status,
+                           user_id, semester_id
+                       ))
     else:
         # Insert new application for this semester
         cursor.execute("""
