@@ -412,10 +412,11 @@ def update_application_data(db, user_id, application_id, application, raw_data):
 
         # Loop through the list of paths and insert them one by one
         for path in raw_data["itr_paths"]:
-            cursor.execute("""
-                           INSERT INTO application_files (application_id, file_type, file_path)
-                           VALUES (%s, 'itr', %s)
-                           """, (application_id, path))
+            if path:
+                cursor.execute("""
+                               INSERT INTO application_files (application_id, file_type, file_path)
+                               VALUES (%s, 'itr', %s)
+                               """, (application_id, path))
 
     if "grades" in raw_data and raw_data["grades"]:
 

@@ -114,15 +114,16 @@ def submit_application():
         # getlist() retrieves ALL files uploaded with the key 'itr'
         files = request.files.getlist("itr")
         for f in files:
-            if f and allowed_file(f.filename):
+            if f and f.filename and allowed_file(f.filename):
                 path = save_file(f, user_id, "itr")
-                itr_paths.append(path)
+                if path:
+                    itr_paths.append(path)
 
     # 3. Handle Grades (Single file)
     grades_path = None
     if "grades" in request.files:
         grades_file = request.files["grades"]
-        if allowed_file(grades_file.filename):
+        if grades_file and grades_file.filename and allowed_file(grades_file.filename):
             grades_path = save_file(grades_file, user_id, "grades")
 
     # 4. Get Active Term
@@ -169,10 +170,11 @@ def submit_application():
                     (application_id,)
                 )
                 for path in itr_paths:
-                    cursor.execute("""
-                                   INSERT INTO application_files (application_id, file_type, file_path)
-                                   VALUES (%s, 'itr', %s)
-                                   """, (application_id, path))
+                    if path:
+                        cursor.execute("""
+                                       INSERT INTO application_files (application_id, file_type, file_path)
+                                       VALUES (%s, 'itr', %s)
+                                       """, (application_id, path))
 
             if grades_path:
                 cursor.execute(

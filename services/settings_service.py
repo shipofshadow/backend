@@ -48,7 +48,10 @@ def get_all_system_settings():
             settings[key] = cast_setting_value(key, val)
 
         # 3. Cache Result
-        redis_client.setex(ALL_SETTINGS_CACHE_KEY, 3600, json.dumps(settings))
+        try:
+            redis_client.setex(ALL_SETTINGS_CACHE_KEY, 3600, json.dumps(settings))
+        except Exception:
+            pass
 
         return settings
     except Exception as e:

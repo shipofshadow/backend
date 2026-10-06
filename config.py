@@ -41,7 +41,10 @@ class Config:
     S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
     S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
     S3_REGION = os.getenv("S3_REGION", "us-east-1")
-    S3_ENDPOINT = os.getenv("S3_ENDPOINT", "")
+    _s3_endpoint = os.getenv("S3_ENDPOINT", "")
+    if _s3_endpoint and not _s3_endpoint.startswith(("http://", "https://")):
+        _s3_endpoint = f"https://{_s3_endpoint}"
+    S3_ENDPOINT = _s3_endpoint
 
 
 

@@ -25,6 +25,8 @@ class S3Service:
         """Lazy-load S3 client"""
         if self._client is None and self.enabled:
             endpoint_url = Config.S3_ENDPOINT if Config.S3_ENDPOINT else None
+            if endpoint_url and not endpoint_url.startswith(("http://", "https://")):
+                endpoint_url = f"https://{endpoint_url}"
             self._client = boto3.client(
                 "s3",
                 aws_access_key_id=Config.S3_ACCESS_KEY,

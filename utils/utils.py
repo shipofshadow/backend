@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import uuid
@@ -15,6 +16,8 @@ from services.s3_service import s3_service
 from .avatar_generator import create_initials_avatar
 
 from services.settings_service import get_storage_provider
+
+logger = logging.getLogger(__name__)
 
 
 def allowed_file(filename):
@@ -50,13 +53,16 @@ def save_file(file, user_id, file_type):
         # Upload to Private S3
         stored_key = s3_service.upload_file_with_content_type(path, filename)
 
-        # Clean up local file
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        if stored_key:
+            # Clean up local file only on successful upload
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return stored_key
 
-        return stored_key  # Returns "uploads/user_type_uuid.jpg"
+        logger.warning(f"S3 upload failed for {filename}. Retaining local copy as fallback.")
+        return filename
 
     return filename  # Returns local filename
 
@@ -74,12 +80,16 @@ def generate_avatar(name):
     if storage_provider == 's3':
         # Upload to S3
         stored_key = s3_service.upload_file_with_content_type(path, filename)
-        # Clean up local file
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        return stored_key  # Returns "uploads/avatar_xxx.png"
+        if stored_key:
+            # Clean up local file only on successful upload
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return stored_key
+
+        logger.warning(f"S3 upload failed for avatar {filename}. Retaining local copy as fallback.")
+        return filename
 
     return filename  # Returns local filename
 
@@ -202,13 +212,16 @@ def save_avatar(file_or_url: Union[FileStorage, str], user_id: str) -> str:
         # Upload to S3
         stored_key = s3_service.upload_file_with_content_type(path, filename)
 
-        # Clean up local file
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        if stored_key:
+            # Clean up local file only on successful upload
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return stored_key
 
-        return stored_key  # Returns "uploads/avatar_xxx.jpg"
+        logger.warning(f"S3 upload failed for avatar {filename}. Retaining local copy as fallback.")
+        return filename
 
     return filename  # Returns local filename
 
