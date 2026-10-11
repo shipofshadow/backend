@@ -206,6 +206,10 @@ def get_fuzzy_sets():
                        ORDER BY fv.variable_name, fs.set_name
                        """)
         sets = cursor.fetchall()
+        for s in sets:
+            s['param_a'] = float(s['param_a']) if s.get('param_a') is not None else 0.0
+            s['param_b'] = float(s['param_b']) if s.get('param_b') is not None else 0.0
+            s['param_c'] = float(s['param_c']) if s.get('param_c') is not None else 0.0
         return jsonify(sets), 200
     except Exception as e:
         print(f"[ERROR] get_fuzzy_sets: {e}")
